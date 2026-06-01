@@ -1,0 +1,697 @@
+import React from 'react'
+import { COACH_CLIENTS, COACH_PROGRAMMES, COACH_INBOX, COACH_KPIS, COACH_PROFILE, COACH_SCHEDULE } from '../data/index'
+import { Hex, HexBackButton, HexProgress } from '../components/hex'
+import { IconBell, IconBolt, IconCalendar, IconChevronRight, IconMore, IconUser } from '../components/icons'
+import { ProgrammeBuilder } from './ProgrammeBuilder'
+
+// Coach — PT-side hub. Manage clients, programmes, schedule, inbox.
+// Inspired by Everfit's coach experience but mobile-native.
+export function Coach({ go }) {
+  const [tab, setTab] = React.useState('clients');
+  const [clientId, setClientId]     = React.useState(null);
+  const [programmeId, setProgrammeId] = React.useState(null);
+  const [builderProgramme, setBuilderProgramme] = React.useState(null);
+
+  const client    = COACH_CLIENTS.find(c => c.id === clientId);
+  const programme = COACH_PROGRAMMES.find(p => p.id === programmeId);
+
+  // Full-screen builder overrides the whole Coach surface
+  if (builderProgramme) {
+    return <ProgrammeBuilder programme={builderProgramme} onClose={() => setBuilderProgramme(null)}/>;
+  }
+
+  return (
+    <div className="scroller" style={{ padding: '0 16px 110px', paddingTop: 64 }}>
+      <CoachHeader/>
+      <KPIRow/>
+
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: 4, marginTop: 16, marginBottom: 14 }}>
+        {COACH_TABS.map(t => (
+          <CTab key={t.id} active={tab === t.id} onClick={() => setTab(t.id)} label={t.label} count={t.count?.()} />
+        ))}
+      </div>
+
+      {tab === 'clients'    && <ClientsTab onPick={setClientId}/>}
+      {tab === 'programmes' && <ProgrammesTab onPick={setProgrammeId}/>}
+      {tab === 'schedule'   && <ScheduleTab/>}
+      {tab === 'inbox'      && <InboxTab/>}
+
+      {client    && <ClientSheet c={client} onClose={() => setClientId(null)}/>}
+      {programme && <ProgrammeSheet p={programme}
+        onClose={() => setProgrammeId(null)}
+        onEdit={() => { setBuilderProgramme(programme); setProgrammeId(null); }}
+      />}
+    </div>
+  );
+}
+
+const COACH_TABS = [
+  { id: 'clients',    label: 'Clients',    count: () => COACH_CLIENTS.length },
+  { id: 'programmes', label: 'Programmes', count: () => COACH_PROGRAMMES.length },
+  { id: 'schedule',   label: 'Today' },
+  { id: 'inbox',      label: 'Inbox',      count: () => COACH_INBOX.filter(m => m.unread).length || null },
+];
+
+function CTab({ active, onClick, label, count }) {
+  return (
+    <button onClick={onClick} style={{
+      flex: 1, padding: '10px 6px',
+      background: active ? 'var(--accent-soft)' : 'var(--bg-2)',
+      border: '1px solid ' + (active ? 'var(--accent)' : 'var(--line)'),
+      borderRadius: 10, cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+      color: active ? 'var(--accent)' : 'var(--text-2)',
+      fontFamily: 'JetBrains Mono', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em',
+      textTransform: 'uppercase',
+      boxShadow: active ? '0 0 calc(8px * var(--glow)) var(--accent-glow)' : 'none',
+    }}>
+      <span>{label.toUpperCase()}</span>
+      {count != null && (
+        <span style={{
+          padding: '1px 6px', borderRadius: 999,
+          background: active ? 'var(--accent)' : 'var(--bg-3)',
+          color: active ? 'var(--on-accent)' : 'var(--text-3)',
+          fontSize: 9, fontWeight: 700,
+        }}>{count}</span>
+      )}
+    </button>
+  );
+}
+
+// ── HEADER ──────────────────────────────────────────────────────
+function CoachHeader() {
+  const p = COACH_PROFILE;
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0 14px' }}>
+        <div>
+          <div className="label" style={{ marginBottom: 4 }}>// COACH HUB</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'JetBrains Mono, monospace' }}>SUN · 24 MAY · 07:08</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn-ghost" style={{ padding: 8, position: 'relative' }}>
+            <IconBell size={16}/>
+            <span style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, background: 'var(--c-coral)', borderRadius: '50%' }}/>
+          </button>
+          <Hex size={36} style={{
+            background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
+            color: 'var(--on-accent)',
+            fontFamily: 'Orbitron', fontSize: 11, fontWeight: 800,
+          }}>HS</Hex>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <div className="h-bold" style={{ fontSize: 24, lineHeight: 1.1 }}>
+          GOOD MORNING,<br/>
+          <span style={{ color: 'var(--accent)' }} className="text-glow">COACH H.</span>
+        </div>
+        <div style={{ color: 'var(--text-2)', fontSize: 13, marginTop: 6 }}>
+          <strong style={{ color: 'var(--accent)' }}>{p.clientsActive}</strong> active clients · <strong style={{ color: 'var(--c-amber)' }}>4 unread</strong> · <strong style={{ color: 'var(--c-coral)' }}>1 needs attention</strong>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── KPI ROW ─────────────────────────────────────────────────────
+function KPIRow() {
+  const k = COACH_KPIS;
+  const items = [
+    { label: 'ACTIVE',   value: k.activeClients,  color: 'var(--accent)',  icon: <IconUser size={11}/> },
+    { label: 'SESSIONS', value: k.sessionsToday,  color: 'var(--accent-2)',icon: <IconCalendar size={11}/> },
+    { label: 'PRs · 7d', value: k.prsThisWeek,    color: 'var(--c-amber)', icon: <IconBolt size={11}/> },
+    { label: 'INBOX',    value: k.unreadMessages, color: 'var(--c-coral)', icon: <IconBell size={11}/>, badge: true },
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+      {items.map(it => (
+        <div key={it.label} className="card" style={{ padding: '10px 8px', textAlign: 'left' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: it.color, marginBottom: 4 }}>
+            {it.icon}
+            <span className="mono" style={{ fontSize: 8, letterSpacing: '0.1em', fontWeight: 700, color: it.color }}>{it.label}</span>
+          </div>
+          <div className="h-bold" style={{ fontSize: 22, color: it.color, lineHeight: 1 }}>{it.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── CLIENTS TAB ─────────────────────────────────────────────────
+function ClientsTab({ onPick }) {
+  const [filter, setFilter] = React.useState('all');
+  const [q, setQ] = React.useState('');
+  const filters = [
+    { id: 'all',       label: 'All' },
+    { id: 'attention', label: 'Attention',  match: (c) => c.status === 'needs-attention' || c.status === 'inactive' },
+    { id: 'prs',       label: 'PR · 7d',    match: (c) => c.prsThisWeek > 0 },
+    { id: 'new',       label: 'New',        match: (c) => c.status === 'new' },
+  ];
+  const active = filters.find(f => f.id === filter);
+  const filtered = COACH_CLIENTS
+    .filter(c => !active.match || active.match(c))
+    .filter(c => c.name.toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <>
+      {/* Search */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 10,
+        padding: '8px 12px', marginBottom: 10,
+      }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search clients..."
+          style={{ flex: 1, background: 'transparent', border: 0, outline: 'none', color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 12 }}/>
+        <button style={{
+          all: 'unset', cursor: 'pointer',
+          padding: '4px 8px', borderRadius: 6,
+          background: 'var(--accent-soft)', color: 'var(--accent)',
+          fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.1em', fontWeight: 600,
+        }}>+ INVITE</button>
+      </div>
+
+      {/* Filter chips */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
+        {filters.map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{
+            all: 'unset', cursor: 'pointer', whiteSpace: 'nowrap',
+            padding: '5px 11px', borderRadius: 999,
+            border: '1px solid ' + (filter === f.id ? 'var(--accent)' : 'var(--line-strong)'),
+            background: filter === f.id ? 'var(--accent-soft)' : 'transparent',
+            color: filter === f.id ? 'var(--accent)' : 'var(--text-2)',
+            fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.1em', fontWeight: 600,
+            textTransform: 'uppercase',
+          }}>{f.label}</button>
+        ))}
+      </div>
+
+      {/* Client list */}
+      <div style={{ display: 'grid', gap: 8 }}>
+        {filtered.map(c => <ClientRow key={c.id} c={c} onPick={() => onPick(c.id)}/>)}
+        {filtered.length === 0 && (
+          <div className="card" style={{ padding: 22, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            No clients match
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ClientRow({ c, onPick }) {
+  const adherencePct = c.adherence.filter(Boolean).length / c.adherence.length;
+  const statusColor = c.status === 'needs-attention' ? 'var(--c-coral)'
+                    : c.status === 'inactive'        ? 'var(--text-3)'
+                    : c.status === 'new'             ? 'var(--c-amber)'
+                    :                                  'var(--accent)';
+  return (
+    <button onClick={onPick} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+      <div className="card" style={{
+        padding: 12, display: 'grid', gridTemplateColumns: '52px 1fr auto', gap: 12,
+        alignItems: 'center',
+        borderLeft: `2px solid ${statusColor}`,
+      }}>
+        {/* Hex avatar with adherence ring */}
+        <HexProgress size={48} pct={adherencePct} accent={statusColor} strokeWidth={18} glow={c.status==='on-track'}>
+          <Hex size={36} style={{
+            background: c.accent, color: 'var(--on-accent)',
+            fontFamily: 'Orbitron', fontSize: 11, fontWeight: 800,
+          }}>{c.initials}</Hex>
+        </HexProgress>
+
+        {/* Identity + programme */}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {c.name}
+            </span>
+            {c.status === 'needs-attention' && (
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--c-coral)', boxShadow: '0 0 6px var(--c-coral)' }}/>
+            )}
+            {c.status === 'new' && (
+              <span className="chip chip-lime" style={{ fontSize: 8, padding: '1px 5px', letterSpacing: '0.1em' }}>NEW</span>
+            )}
+          </div>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {c.phaseLabel.toUpperCase()}
+          </div>
+          {/* Adherence dots — last 7 days */}
+          <div style={{ display: 'flex', gap: 3, marginTop: 6, alignItems: 'center' }}>
+            {c.adherence.map((d, i) => (
+              <span key={i} style={{
+                width: 14, height: 4, borderRadius: 1,
+                background: d ? statusColor : 'var(--bg-3)',
+                opacity: i === 6 ? 1 : 0.85,
+                boxShadow: d ? `0 0 4px ${statusColor}` : 'none',
+              }}/>
+            ))}
+            <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginLeft: 6 }}>
+              {c.lastSeen.toUpperCase()}
+            </span>
+          </div>
+        </div>
+
+        <IconChevronRight size={16} style={{ color: 'var(--text-3)' }}/>
+      </div>
+    </button>
+  );
+}
+
+// ── PROGRAMMES TAB ──────────────────────────────────────────────
+function ProgrammesTab({ onPick }) {
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div className="label">// PROGRAMMES · {COACH_PROGRAMMES.length}</div>
+        <button className="btn-ghost" style={{ padding: '6px 10px', borderColor: 'var(--accent)', color: 'var(--accent)', fontSize: 10 }}>
+          + NEW PROGRAMME
+        </button>
+      </div>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {COACH_PROGRAMMES.map(p => <ProgrammeCard key={p.id} p={p} onPick={() => onPick(p.id)}/>)}
+      </div>
+    </>
+  );
+}
+
+function ProgrammeCard({ p, onPick }) {
+  const tagColor = p.tag === 'STRENGTH' ? 'var(--accent)'
+                 : p.tag === 'ONBOARD'  ? 'var(--c-amber)'
+                 : p.tag === 'REHAB'    ? 'var(--c-coral)'
+                 :                        'var(--c-blue)';
+  return (
+    <button onClick={onPick} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span className="chip" style={{ fontSize: 8, padding: '2px 6px', color: tagColor, borderColor: 'currentColor' }}>{p.tag}</span>
+              <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.1em' }}>
+                {p.weeks} WK · {p.phases} PHASE{p.phases > 1 ? 'S' : ''}
+              </span>
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>{p.name}</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: -6 }}>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.08em', fontWeight: 600 }}>
+              {p.clients} CLIENT{p.clients > 1 ? 'S' : ''}
+            </span>
+          </div>
+        </div>
+
+        {/* Phase strip */}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${p.phaseList.length}, 1fr)`, gap: 4, marginBottom: 8 }}>
+          {p.phaseList.map((ph, i) => (
+            <div key={i} style={{
+              padding: '6px 8px', borderRadius: 6,
+              background: 'var(--bg-3)',
+              border: '1px solid var(--line)',
+            }}>
+              <div className="mono" style={{ fontSize: 8, color: tagColor, letterSpacing: '0.1em', fontWeight: 600 }}>P{i+1} · {ph.weeks}W</div>
+              <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {ph.name}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.08em' }}>
+            UPDATED {p.lastEdited.toUpperCase()}
+          </span>
+          <IconChevronRight size={14} style={{ color: 'var(--text-3)' }}/>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ── SCHEDULE TAB ────────────────────────────────────────────────
+function ScheduleTab() {
+  const sched = COACH_SCHEDULE;
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <div className="label">// TODAY · {sched.length} SESSIONS</div>
+        <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.1em' }}>
+          {sched.filter(s => s.status === 'done').length}/{sched.length} DONE
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gap: 8, position: 'relative' }}>
+        {sched.map((s, i) => <ScheduleRow key={s.id} s={s} last={i === sched.length - 1}/>)}
+      </div>
+    </>
+  );
+}
+
+function ScheduleRow({ s, last }) {
+  const kindMeta = {
+    LIVE_PT:  { label: 'LIVE PT',  color: 'var(--accent)'   },
+    CHECK_IN: { label: 'CHECK-IN', color: 'var(--c-amber)'  },
+    REVIEW:   { label: 'REVIEW',   color: 'var(--accent-2)' },
+    INTAKE:   { label: 'INTAKE',   color: 'var(--c-coral)'  },
+  }[s.kind] || { label: 'SESSION', color: 'var(--accent)' };
+
+  const statusMeta = {
+    done:     { color: 'var(--text-3)',  label: '✓ DONE' },
+    live:     { color: 'var(--c-coral)', label: '● LIVE' },
+    upcoming: { color: 'var(--text-2)',  label: '○ UPCOMING' },
+  }[s.status];
+
+  const client = COACH_CLIENTS.find(c => c.id === s.clientId);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: 10, position: 'relative' }}>
+      {/* Time column with vertical rail */}
+      <div style={{ textAlign: 'right', paddingRight: 8, position: 'relative' }}>
+        <div className="mono" style={{ fontSize: 12, color: s.status === 'live' ? 'var(--c-coral)' : 'var(--text)', fontWeight: 600, letterSpacing: '0.04em' }}>
+          {s.time}
+        </div>
+        <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2, letterSpacing: '0.08em' }}>
+          {s.duration}M
+        </div>
+        {/* rail */}
+        <div style={{
+          position: 'absolute', right: -1, top: 28, bottom: last ? 0 : -10,
+          width: 1, background: 'var(--line)',
+        }}/>
+        {/* dot */}
+        <span style={{
+          position: 'absolute', right: -4, top: 6,
+          width: 7, height: 7, borderRadius: '50%',
+          background: s.status === 'live' ? 'var(--c-coral)' : s.status === 'done' ? 'var(--text-3)' : kindMeta.color,
+          border: '1.5px solid var(--bg-1)',
+          boxShadow: s.status === 'live' ? '0 0 8px var(--c-coral)' : 'none',
+        }}/>
+      </div>
+
+      {/* Session card */}
+      <div className="card" style={{
+        padding: 12,
+        background: s.status === 'live' ? 'rgba(238,106,106,0.05)' : 'var(--bg-2)',
+        borderColor: s.status === 'live' ? 'color-mix(in srgb, var(--c-coral) 40%, var(--line))' : 'var(--line)',
+        boxShadow: s.status === 'live' ? '0 0 calc(10px * var(--glow)) rgba(238,106,106,0.25)' : 'none',
+        opacity: s.status === 'done' ? 0.6 : 1,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+          <span className="chip" style={{ fontSize: 8, padding: '1px 6px', color: kindMeta.color, borderColor: 'currentColor' }}>
+            {kindMeta.label}
+          </span>
+          <span className="mono" style={{ fontSize: 9, color: statusMeta.color, letterSpacing: '0.1em' }}>
+            {statusMeta.label}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          {client && (
+            <Hex size={22} style={{
+              background: client.accent, color: 'var(--on-accent)',
+              fontFamily: 'Orbitron', fontSize: 8, fontWeight: 800, flexShrink: 0,
+            }}>{client.initials}</Hex>
+          )}
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{s.client}</span>
+        </div>
+
+        <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.04em', lineHeight: 1.4 }}>
+          {s.note}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── INBOX TAB ───────────────────────────────────────────────────
+function InboxTab() {
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      {COACH_INBOX.map(m => <InboxRow key={m.id} m={m}/>)}
+    </div>
+  );
+}
+
+function InboxRow({ m }) {
+  return (
+    <button style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+      <div className="card" style={{
+        padding: 12, display: 'grid', gridTemplateColumns: '36px 1fr auto', gap: 10,
+        alignItems: 'center',
+        background: m.unread ? 'rgba(70,187,192,0.04)' : 'var(--bg-2)',
+        borderColor: m.unread ? 'color-mix(in srgb, var(--accent) 22%, var(--line))' : 'var(--line)',
+      }}>
+        <Hex size={32} style={{
+          background: m.accent, color: 'var(--on-accent)',
+          fontFamily: 'Orbitron', fontSize: 10, fontWeight: 800,
+        }}>{m.initials}</Hex>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: m.unread ? 700 : 500, color: m.unread ? 'var(--text)' : 'var(--text-2)' }}>
+              {m.from}
+            </span>
+            {m.unread && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent-glow)' }}/>}
+          </div>
+          <div style={{
+            fontSize: 12, color: m.unread ? 'var(--text-2)' : 'var(--text-3)',
+            marginTop: 3, lineHeight: 1.35,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {m.preview}
+          </div>
+        </div>
+        <span className="mono" style={{ fontSize: 9, color: m.unread ? 'var(--accent)' : 'var(--text-3)', letterSpacing: '0.08em', alignSelf: 'flex-start', marginTop: 2 }}>
+          {m.when.toUpperCase()}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+// ── CLIENT DETAIL SHEET ─────────────────────────────────────────
+function ClientSheet({ c, onClose }) {
+  const adherencePct = c.adherence.filter(Boolean).length / c.adherence.length;
+  return (
+    <SheetShell onClose={onClose}>
+      {/* Top — avatar + name */}
+      <div style={{ padding: '20px 18px 14px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <HexProgress size={68} pct={adherencePct} accent="var(--accent)" strokeWidth={20}>
+            <Hex size={54} style={{
+              background: c.accent, color: 'var(--on-accent)',
+              fontFamily: 'Orbitron', fontSize: 16, fontWeight: 800,
+            }}>{c.initials}</Hex>
+          </HexProgress>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="h-bold" style={{ fontSize: 18 }}>{c.name.toUpperCase()}</div>
+            <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 4 }}>
+              {c.phaseLabel.toUpperCase()}
+            </div>
+          </div>
+        </div>
+
+        {/* KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 16 }}>
+          <SmallKpi label="ADHERE" value={`${Math.round(adherencePct*100)}%`} color="var(--accent)"/>
+          <SmallKpi label="STREAK" value={c.streak} unit="d" color="var(--c-amber)"/>
+          <SmallKpi label="PRs · 7d" value={c.prsThisWeek} color="var(--accent-2)"/>
+          <SmallKpi label="SESSIONS" value={`${c.sessionsThisWeek}/${c.sessionsTarget}`} color="var(--text-2)"/>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="scroller" style={{ flex: 1, padding: '14px 18px 18px', minHeight: 0 }}>
+        <div className="label" style={{ marginBottom: 8 }}>// LAST 7 DAYS</div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+          {c.adherence.map((d, i) => (
+            <div key={i} style={{ flex: 1, textAlign: 'center' }}>
+              <div style={{
+                height: 36, borderRadius: 6,
+                background: d ? 'linear-gradient(180deg, var(--accent), var(--accent-2))' : 'var(--bg-3)',
+                border: '1px solid ' + (d ? 'var(--accent)' : 'var(--line)'),
+                boxShadow: d ? '0 0 calc(6px * var(--glow)) var(--accent-glow)' : 'none',
+                display: 'grid', placeItems: 'center',
+                color: d ? 'var(--on-accent)' : 'var(--text-3)',
+                fontFamily: 'JetBrains Mono', fontSize: 11, fontWeight: 700,
+              }}>{d ? '✓' : '—'}</div>
+              <div className="mono" style={{ fontSize: 8, color: i === 6 ? 'var(--accent)' : 'var(--text-3)', marginTop: 4, letterSpacing: '0.1em', fontWeight: 600 }}>
+                {['M','T','W','T','F','S','S'][i]}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="label" style={{ marginBottom: 8 }}>// CURRENT PROGRAMME</div>
+        <div className="card" style={{ padding: 12, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{c.programme}</div>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.08em' }}>
+            {c.phaseLabel.toUpperCase()}
+          </div>
+        </div>
+
+        <div className="label" style={{ marginBottom: 8 }}>// QUICK ACTIONS</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <SheetAction icon="✉" label="MESSAGE"/>
+          <SheetAction icon="◯" label="LOG SESSION"/>
+          <SheetAction icon="◢" label="EDIT PLAN"/>
+          <SheetAction icon="▣" label="CHECK-IN"/>
+        </div>
+      </div>
+
+      {/* Bottom CTA */}
+      <div style={{ padding: '12px 18px 28px', borderTop: '1px solid var(--line)' }}>
+        <button className="btn-primary" style={{ width: '100%' }}>OPEN FULL CLIENT FILE</button>
+      </div>
+    </SheetShell>
+  );
+}
+
+function SmallKpi({ label, value, unit, color }) {
+  return (
+    <div style={{
+      padding: '8px 6px', borderRadius: 8,
+      background: 'var(--bg-2)', border: '1px solid var(--line)',
+      textAlign: 'center',
+    }}>
+      <div className="mono" style={{ fontSize: 8, color: color, letterSpacing: '0.08em', fontWeight: 600 }}>{label}</div>
+      <div className="h-bold" style={{ fontSize: 16, color: color, marginTop: 2, lineHeight: 1 }}>
+        {value}{unit && <span style={{ fontSize: 9, color: 'var(--text-3)', marginLeft: 1 }}>{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SheetAction({ icon, label }) {
+  return (
+    <button style={{
+      all: 'unset', cursor: 'pointer',
+      padding: '12px 10px', borderRadius: 10,
+      background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+      display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <span style={{
+        width: 28, height: 28, borderRadius: 7,
+        background: 'var(--accent-soft)',
+        display: 'grid', placeItems: 'center',
+        color: 'var(--accent)', fontFamily: 'Orbitron', fontWeight: 800, fontSize: 13,
+      }}>{icon}</span>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--text)', letterSpacing: '0.1em', fontWeight: 600 }}>
+        {label}
+      </span>
+    </button>
+  );
+}
+
+// ── PROGRAMME DETAIL SHEET ──────────────────────────────────────
+function ProgrammeSheet({ p, onClose, onEdit }) {
+  return (
+    <SheetShell onClose={onClose}>
+      <div style={{ padding: '20px 18px 14px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div className="mono" style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.14em', fontWeight: 600, marginBottom: 4 }}>
+              // PROGRAMME
+            </div>
+            <div className="h-bold" style={{ fontSize: 22, lineHeight: 1.1 }}>{p.name.toUpperCase()}</div>
+            <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 6 }}>
+              {p.weeks} WEEKS · {p.phases} PHASES · {p.clients} CLIENT{p.clients > 1 ? 'S' : ''}
+            </div>
+          </div>
+          <span className="chip chip-accent" style={{ fontSize: 9 }}>{p.tag}</span>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="scroller" style={{ flex: 1, padding: '16px 18px 18px', minHeight: 0 }}>
+        <div className="label" style={{ marginBottom: 10 }}>// PHASES</div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {p.phaseList.map((ph, i) => (
+            <div key={i} style={{
+              display: 'grid', gridTemplateColumns: '36px 1fr auto', gap: 12,
+              alignItems: 'center', padding: '12px 14px',
+              background: 'var(--bg-2)', border: '1px solid var(--line)',
+              borderRadius: 10,
+              borderLeft: '2px solid var(--accent)',
+            }}>
+              <div style={{
+                width: 30, height: 30, borderRadius: 8,
+                background: 'var(--accent-soft)', border: '1px solid var(--accent)',
+                display: 'grid', placeItems: 'center',
+                color: 'var(--accent)', fontFamily: 'Orbitron', fontWeight: 800, fontSize: 12,
+              }}>P{i+1}</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{ph.name}</div>
+                <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 3 }}>
+                  {ph.weeks} WK · {ph.focus.toUpperCase()}
+                </div>
+              </div>
+              <IconChevronRight size={14} style={{ color: 'var(--text-3)' }}/>
+            </div>
+          ))}
+        </div>
+
+        <div className="label" style={{ margin: '20px 0 10px' }}>// SUBSCRIBED CLIENTS · {p.clients}</div>
+        <div style={{ display: 'grid', gap: 6 }}>
+          {COACH_CLIENTS.filter(c => c.programme === p.name).map(c => (
+            <div key={c.id} className="card" style={{
+              padding: 10, display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: 10, alignItems: 'center',
+            }}>
+              <Hex size={26} style={{
+                background: c.accent, color: 'var(--on-accent)',
+                fontFamily: 'Orbitron', fontSize: 9, fontWeight: 800,
+              }}>{c.initials}</Hex>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 1 }}>
+                  {c.phaseLabel.toUpperCase()}
+                </div>
+              </div>
+              <IconChevronRight size={12} style={{ color: 'var(--text-3)' }}/>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Bottom CTA */}
+      <div style={{ padding: '12px 18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
+        <button className="btn-ghost" style={{ flex: 1 }}>DUPLICATE</button>
+        <button className="btn-primary" style={{ flex: 1 }} onClick={onEdit}>EDIT PROGRAMME</button>
+      </div>
+    </SheetShell>
+  );
+}
+
+// ── SHEET SHELL ─────────────────────────────────────────────────
+function SheetShell({ onClose, children }) {
+  return (
+    <div onClick={onClose} style={{
+      position: 'absolute', inset: 0, zIndex: 60,
+      background: 'rgba(7,7,12,0.65)', backdropFilter: 'blur(8px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        position: 'absolute', inset: 0,
+        background: 'var(--bg-1)',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '54px 18px 4px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <HexBackButton onClick={onClose} size={36} />
+          <button style={{
+            all: 'unset', cursor: 'pointer',
+            width: 36, height: 36, borderRadius: '50%',
+            background: 'var(--bg-2)', border: '1px solid var(--line)',
+            display: 'grid', placeItems: 'center', color: 'var(--text)',
+          }}>
+            <IconMore size={16}/>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+Coach = Coach;

@@ -1,0 +1,151 @@
+import React from 'react'
+import { ACTIVE_EXERCISES } from './data/index'
+import { HexShape } from './components/hex'
+import { IconHome, IconCalendar, IconChart, IconBook, IconUser } from './components/icons'
+import { Dashboard } from './screens/Dashboard'
+import { Workouts } from './screens/Workouts'
+import { ActiveLog } from './screens/ActiveLog'
+import { Progress } from './screens/Progress'
+import { Resources } from './screens/Resources'
+import { Profile } from './screens/Profile'
+import { Notifications } from './screens/Notifications'
+import { Coach } from './screens/Coach'
+import { SessionComplete } from './screens/ActiveLog'
+
+const ACCENTS = {
+  sea:      { c: '#46BBC0', soft: 'rgba(70,187,192,0.16)',  glow: 'rgba(70,187,192,0.45)',  on: '#06262A' },
+  viridian: { c: '#189CAA', soft: 'rgba(24,156,170,0.16)',  glow: 'rgba(24,156,170,0.45)',  on: '#04181C' },
+  amber:    { c: '#F39E1F', soft: 'rgba(243,158,31,0.16)',  glow: 'rgba(243,158,31,0.40)',  on: '#1C1206' },
+  coral:    { c: '#EE6A6A', soft: 'rgba(238,106,106,0.16)', glow: 'rgba(238,106,106,0.40)', on: '#220909' },
+};
+
+const BG_PRESETS = {
+  charcoal: { '--bg-0': '#0a0d0e', '--bg-1': '#11161A', '--bg-2': '#1A2125', '--bg-3': '#232C32' },
+  midnight: { '--bg-0': '#04181C', '--bg-1': '#082226', '--bg-2': '#0E2E33', '--bg-3': '#143C42' },
+};
+
+const DENSITY = {
+  sparse:   { pad: 20, gap: 18, radius: 16 },
+  balanced: { pad: 16, gap: 14, radius: 14 },
+  dense:    { pad: 12, gap: 10, radius: 12 },
+};
+
+export default function App() {
+  const [theme, setTheme] = React.useState('light');
+  const [accent] = React.useState('sea');
+  const [bg] = React.useState('charcoal');
+  const [typeIntensity] = React.useState(1);
+  const [density] = React.useState('balanced');
+  const [glow] = React.useState(1);
+  const [screen, setScreen] = React.useState('dashboard');
+  const [previewWorkoutId, setPreviewWorkoutId] = React.useState(null);
+  const [user, setUser] = React.useState({ name: 'Harrison Stock', email: 'harrison@harrisonstock.co.uk' });
+
+  // Custom navigation: dashboard "start session" jumps to workouts AND opens preview
+  const navigate = (target, opts) => {
+    if (target === 'preview') {
+      setScreen('workouts');
+      setPreviewWorkoutId(opts?.id || 'w1');
+      return;
+    }
+    setScreen(target);
+    setPreviewWorkoutId(null);
+  };
+
+  // Apply theme/accent/density to CSS custom properties
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const isLight = theme === 'light';
+    root.dataset.theme = theme || 'dark';
+    const a = ACCENTS[accent] || ACCENTS.sea;
+    root.style.setProperty('--accent', a.c);
+    root.style.setProperty('--accent-soft', isLight
+      ? a.soft.replace(/0\.16\)/, '0.13)')
+      : a.soft);
+    root.style.setProperty('--accent-glow', isLight
+      ? a.glow.replace(/0\.45\)/, '0.32)').replace(/0\.40\)/, '0.28)')
+      : a.glow);
+    root.style.setProperty('--on-accent', a.on);
+    if (!isLight) {
+      const bgPreset = BG_PRESETS[bg] || BG_PRESETS.charcoal;
+      Object.entries(bgPreset).forEach(([k, v]) => root.style.setProperty(k, v));
+    } else {
+      ['--bg-0', '--bg-1', '--bg-2', '--bg-3'].forEach(k => root.style.removeProperty(k));
+    }
+    root.style.setProperty('--type-intensity', typeIntensity);
+    root.style.setProperty('--glow', glow);
+    const d = DENSITY[density] || DENSITY.balanced;
+    root.style.setProperty('--density-pad', d.pad + 'px');
+    root.style.setProperty('--density-gap', d.gap + 'px');
+    root.style.setProperty('--radius', d.radius + 'px');
+  }, [theme, accent, bg, typeIntensity, density, glow]);
+
+  const showNav = screen !== 'log' && screen !== 'notifications' && screen !== 'sessionresults';
+
+  let ScreenEl;
+  if (screen === 'workouts')       ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId}/>;
+  else if (screen === 'log')       ScreenEl = <ActiveLog go={navigate}/>;
+  else if (screen === 'progress')  ScreenEl = <Progress go={navigate}/>;
+  else if (screen === 'resources') ScreenEl = <Resources go={navigate}/>;
+  else if (screen === 'coach')     ScreenEl = <Coach go={navigate}/>;
+  else if (screen === 'profile')   ScreenEl = <Profile go={navigate} user={user}
+    onSave={(u) => setUser(u)}
+    theme={theme}
+    onThemeChange={(v) => setTheme(v)}
+    onLogout={() => navigate('dashboard')}/>;
+  else if (screen === 'notifications') ScreenEl = <Notifications go={navigate}/>;
+  else if (screen === 'sessionresults') ScreenEl = <SessionComplete exercises={ACTIVE_EXERCISES} sessionTime={2820} go={navigate} onClose={() => navigate('dashboard')}/>;
+  else ScreenEl = <Dashboard go={navigate} user={user}/>;
+
+  return (
+    <div style={{
+      width: '100%', minHeight: '100dvh',
+      fontFamily: "'JetBrains Mono', ui-monospace, 'SF Mono', monospace",
+      background: 'var(--bg-1)',
+      color: 'var(--text)',
+      position: 'relative',
+      overflow: 'hidden',
+    }}>
+      {ScreenEl}
+      {showNav && <BottomNav screen={screen} go={navigate}/>}
+    </div>
+  );
+}
+
+function BottomNav({ screen, go }) {
+  const items = [
+    { id: 'dashboard', label: 'HOME',     Icon: IconHome },
+    { id: 'workouts',  label: 'TRAIN',    Icon: IconCalendar },
+    { id: 'progress',  label: 'PROGRESS', Icon: IconChart },
+    { id: 'resources', label: 'LIBRARY',  Icon: IconBook },
+    { id: 'profile',   label: 'PROFILE',  Icon: IconUser },
+  ];
+  return (
+    <div className="bnav">
+      {items.map(it => {
+        const active = screen === it.id;
+        return (
+          <button key={it.id} className={active ? 'active' : ''} onClick={() => go(it.id)}>
+            <div style={{
+              position: 'relative', height: 32, width: 38,
+              display: 'grid', placeItems: 'center', marginBottom: 2,
+            }}>
+              {/* Brand-hex highlight, shown on the active button */}
+              {active && (
+                <HexShape size={30} fill="var(--accent-soft)"
+                  stroke="var(--accent-2)" strokeWidth={13}
+                  style={{
+                    position: 'absolute', left: '50%', top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    filter: 'drop-shadow(0 0 calc(9px * var(--glow)) var(--accent-glow))',
+                  }}/>
+              )}
+              <it.Icon size={18} style={{ position: 'relative' }}/>
+            </div>
+            <span>{it.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
