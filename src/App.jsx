@@ -1,7 +1,9 @@
 import React from 'react'
+import { supabase } from './lib/supabase'
 import { ACTIVE_EXERCISES } from './data/index'
 import { HexShape } from './components/hex'
-import { IconHome, IconCalendar, IconChart, IconBook, IconUser } from './components/icons'
+import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt } from './components/icons'
+import { Login } from './screens/Login'
 import { Dashboard } from './screens/Dashboard'
 import { Workouts } from './screens/Workouts'
 import { ActiveLog } from './screens/ActiveLog'
@@ -39,9 +41,38 @@ export default function App() {
   const [glow] = React.useState(1);
   const [screen, setScreen] = React.useState('dashboard');
   const [previewWorkoutId, setPreviewWorkoutId] = React.useState(null);
-  const [user, setUser] = React.useState({ name: 'Harrison Stock', email: 'harrison@harrisonstock.co.uk' });
 
-  // Custom navigation: dashboard "start session" jumps to workouts AND opens preview
+  // Auth state
+  const [session, setSession] = React.useState(null);
+  const [profile, setProfile] = React.useState(null);
+  const [authLoading, setAuthLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) fetchProfile(session.user.id);
+      else setAuthLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) fetchProfile(session.user.id);
+      else { setProfile(null); setAuthLoading(false); }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const fetchProfile = async (userId) => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    setProfile(data);
+    setAuthLoading(false);
+  };
+
   const navigate = (target, opts) => {
     if (target === 'preview') {
       setScreen('workouts');
@@ -52,7 +83,6 @@ export default function App() {
     setPreviewWorkoutId(null);
   };
 
-  // Apply theme/accent/density to CSS custom properties
   React.useEffect(() => {
     const root = document.documentElement;
     const isLight = theme === 'light';
@@ -80,21 +110,43 @@ export default function App() {
     root.style.setProperty('--radius', d.radius + 'px');
   }, [theme, accent, bg, typeIntensity, density, glow]);
 
-  const showNav = screen !== 'log' && screen !== 'notifications' && screen !== 'sessionresults';
+  if (authLoading) return <LoadingScreen />;
+  if (!session) return <Login />;
+
+  const isTrainer = profile?.role === 'trainer';
+  const user = {
+    name: profile?.name || session.user.email.split('@')[0],
+    email: session.user.email,
+    dob: profile?.date_of_birth || '',
+  };
+
+  const showNav = !['log', 'notifications', 'sessionresults'].includes(screen);
 
   let ScreenEl;
-  if (screen === 'workouts')       ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId}/>;
-  else if (screen === 'log')       ScreenEl = <ActiveLog go={navigate}/>;
-  else if (screen === 'progress')  ScreenEl = <Progress go={navigate}/>;
-  else if (screen === 'resources') ScreenEl = <Resources go={navigate}/>;
-  else if (screen === 'coach')     ScreenEl = <Coach go={navigate}/>;
-  else if (screen === 'profile')   ScreenEl = <Profile go={navigate} user={user}
-    onSave={(u) => setUser(u)}
-    theme={theme}
-    onThemeChange={(v) => setTheme(v)}
-    onLogout={() => navigate('dashboard')}/>;
+  if (screen === 'workouts')        ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId}/>;
+  else if (screen === 'log')        ScreenEl = <ActiveLog go={navigate}/>;
+  else if (screen === 'progress')   ScreenEl = <Progress go={navigate}/>;
+  else if (screen === 'resources')  ScreenEl = <Resources go={navigate}/>;
+  else if (screen === 'coach')      ScreenEl = <Coach go={navigate}/>;
   else if (screen === 'notifications') ScreenEl = <Notifications go={navigate}/>;
-  else if (screen === 'sessionresults') ScreenEl = <SessionComplete exercises={ACTIVE_EXERCISES} sessionTime={2820} go={navigate} onClose={() => navigate('dashboard')}/>;
+  else if (screen === 'sessionresults') ScreenEl = (
+    <SessionComplete exercises={ACTIVE_EXERCISES} sessionTime={2820} go={navigate} onClose={() => navigate('dashboard')}/>
+  );
+  else if (screen === 'profile') ScreenEl = (
+    <Profile
+      go={navigate}
+      user={user}
+      onSave={async (u) => {
+        await supabase.from('profiles')
+          .update({ name: u.name, date_of_birth: u.dob || null })
+          .eq('id', session.user.id);
+        setProfile(p => ({ ...p, name: u.name, date_of_birth: u.dob }));
+      }}
+      theme={theme}
+      onThemeChange={setTheme}
+      onLogout={() => supabase.auth.signOut()}
+    />
+  );
   else ScreenEl = <Dashboard go={navigate} user={user}/>;
 
   return (
@@ -107,19 +159,26 @@ export default function App() {
       overflow: 'hidden',
     }}>
       {ScreenEl}
-      {showNav && <BottomNav screen={screen} go={navigate}/>}
+      {showNav && <BottomNav screen={screen} go={navigate} isTrainer={isTrainer}/>}
     </div>
   );
 }
 
-function BottomNav({ screen, go }) {
-  const items = [
+function BottomNav({ screen, go, isTrainer }) {
+  const items = isTrainer ? [
+    { id: 'dashboard', label: 'HOME',     Icon: IconHome },
+    { id: 'coach',     label: 'COACH',    Icon: IconBolt },
+    { id: 'progress',  label: 'PROGRESS', Icon: IconChart },
+    { id: 'resources', label: 'LIBRARY',  Icon: IconBook },
+    { id: 'profile',   label: 'PROFILE',  Icon: IconUser },
+  ] : [
     { id: 'dashboard', label: 'HOME',     Icon: IconHome },
     { id: 'workouts',  label: 'TRAIN',    Icon: IconCalendar },
     { id: 'progress',  label: 'PROGRESS', Icon: IconChart },
     { id: 'resources', label: 'LIBRARY',  Icon: IconBook },
     { id: 'profile',   label: 'PROFILE',  Icon: IconUser },
   ];
+
   return (
     <div className="bnav">
       {items.map(it => {
@@ -130,7 +189,6 @@ function BottomNav({ screen, go }) {
               position: 'relative', height: 32, width: 38,
               display: 'grid', placeItems: 'center', marginBottom: 2,
             }}>
-              {/* Brand-hex highlight, shown on the active button */}
               {active && (
                 <HexShape size={30} fill="var(--accent-soft)"
                   stroke="var(--accent-2)" strokeWidth={13}
@@ -146,6 +204,28 @@ function BottomNav({ screen, go }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div style={{
+      minHeight: '100dvh', display: 'grid', placeItems: 'center',
+      background: 'var(--bg-0)',
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          display: 'flex', justifyContent: 'center', marginBottom: 14,
+          filter: 'drop-shadow(0 0 calc(18px * var(--glow)) var(--accent-glow))',
+          opacity: 0.8,
+        }}>
+          <HexShape size={38} fill="var(--accent)" />
+        </div>
+        <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.2em' }}>
+          LOADING…
+        </div>
+      </div>
     </div>
   );
 }

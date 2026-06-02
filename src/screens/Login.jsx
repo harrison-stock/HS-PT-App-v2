@@ -1,0 +1,142 @@
+import React from 'react'
+import { supabase } from '../lib/supabase'
+import { HexShape } from '../components/hex'
+
+export function Login() {
+  const [email, setEmail] = React.useState('')
+  const [password, setPassword] = React.useState('')
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState(null)
+  const [mode, setMode] = React.useState('signin')
+  const [signedUp, setSignedUp] = React.useState(false)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+
+    if (mode === 'signin') {
+      const { error: err } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+      if (err) setError(err.message)
+    } else {
+      const { error: err } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      })
+      if (err) setError(err.message)
+      else setSignedUp(true)
+    }
+
+    setLoading(false)
+  }
+
+  if (signedUp) {
+    return (
+      <div style={wrapStyle}>
+        <div style={{ textAlign: 'center', maxWidth: 300 }}>
+          <div className="h-bold" style={{ fontSize: 20, marginBottom: 12, color: 'var(--heading-deep)' }}>
+            CHECK YOUR EMAIL
+          </div>
+          <div className="mono" style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6, letterSpacing: '0.04em' }}>
+            We've sent a confirmation link to <span style={{ color: 'var(--accent)' }}>{email}</span>.
+            Click it to activate your account, then sign in.
+          </div>
+          <button onClick={() => { setSignedUp(false); setMode('signin') }}
+            className="btn-primary"
+            style={{ marginTop: 24, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--heading-deep)' }}>
+            BACK TO SIGN IN
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={wrapStyle}>
+      {/* Brand mark */}
+      <div style={{ marginBottom: 36, textAlign: 'center' }}>
+        <div style={{
+          display: 'flex', justifyContent: 'center', marginBottom: 16,
+          filter: 'drop-shadow(0 0 calc(18px * var(--glow)) var(--accent-glow))',
+        }}>
+          <HexShape size={52} fill="var(--accent)" />
+        </div>
+        <div className="h-bold" style={{ fontSize: 20, letterSpacing: '0.1em', color: 'var(--heading-deep)' }}>
+          PT TRACKER
+        </div>
+        <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.18em', marginTop: 5 }}>
+          HARRISON STOCK PERFORMANCE
+        </div>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={submit} style={{ width: '100%', maxWidth: 340, display: 'grid', gap: 14 }}>
+        <div>
+          <div className="label" style={{ marginBottom: 7 }}>EMAIL</div>
+          <input
+            type="email" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="you@email.com" required autoComplete="email"
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <div className="label" style={{ marginBottom: 7 }}>PASSWORD</div>
+          <input
+            type="password" value={password} onChange={e => setPassword(e.target.value)}
+            placeholder="••••••••" required minLength={6}
+            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+            style={inputStyle}
+          />
+        </div>
+
+        {error && (
+          <div className="mono" style={{
+            fontSize: 11, color: 'var(--c-coral)', padding: '10px 12px',
+            background: 'color-mix(in srgb, var(--c-coral) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--c-coral) 35%, transparent)',
+            borderRadius: 8, letterSpacing: '0.04em', lineHeight: 1.5,
+          }}>
+            {error}
+          </div>
+        )}
+
+        <button type="submit" disabled={loading} className="btn-primary"
+          style={{
+            marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 10, color: 'var(--heading-deep)', opacity: loading ? 0.6 : 1,
+          }}>
+          {loading ? '…' : mode === 'signin' ? 'SIGN IN' : 'CREATE ACCOUNT'}
+        </button>
+      </form>
+
+      <button
+        onClick={() => { setMode(m => m === 'signin' ? 'signup' : 'signin'); setError(null) }}
+        className="mono"
+        style={{
+          all: 'unset', cursor: 'pointer', marginTop: 22,
+          fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em',
+        }}>
+        {mode === 'signin' ? "NO ACCOUNT? SIGN UP" : 'ALREADY REGISTERED? SIGN IN'}
+      </button>
+    </div>
+  )
+}
+
+const wrapStyle = {
+  minHeight: '100dvh',
+  display: 'flex', flexDirection: 'column',
+  alignItems: 'center', justifyContent: 'center',
+  padding: '24px 24px 56px',
+  background: 'var(--bg-0)',
+}
+
+const inputStyle = {
+  width: '100%', boxSizing: 'border-box',
+  background: 'var(--bg-2)', border: '1px solid var(--line-strong)', borderRadius: 12,
+  padding: '13px 14px', color: 'var(--text)',
+  fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 500,
+  outline: 'none',
+}
