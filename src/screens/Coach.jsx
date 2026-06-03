@@ -10,6 +10,7 @@ export function Coach({ go, trainerId }) {
   const [clientId, setClientId]             = React.useState(null);
   const [programmeId, setProgrammeId]       = React.useState(null);
   const [builderProgramme, setBuilderProgramme] = React.useState(null);
+  const [builderOpenRoadmap, setBuilderOpenRoadmap] = React.useState(false);
   const [programmes, setProgrammes]         = React.useState([]);
   const [loadingProgs, setLoadingProgs]     = React.useState(true);
 
@@ -38,6 +39,7 @@ export function Coach({ go, trainerId }) {
       .select()
       .single();
     if (!phase) return;
+    setBuilderOpenRoadmap(true);
     setBuilderProgramme({
       id: prog.id, name: prog.name, tag: prog.tag,
       weeks: phase.weeks, phases: 1, clients: 0,
@@ -46,13 +48,13 @@ export function Coach({ go, trainerId }) {
     });
   };
 
-  const openBuilder = (prog) => { setProgrammeId(null); setBuilderProgramme(prog); };
+  const openBuilder = (prog) => { setProgrammeId(null); setBuilderOpenRoadmap(false); setBuilderProgramme(prog); };
   const closeBuilder = () => { setBuilderProgramme(null); fetchProgrammes(); };
 
   const programme = programmes.find(p => p.id === programmeId);
 
   if (builderProgramme) {
-    return <ProgrammeBuilder programme={builderProgramme} onClose={closeBuilder}/>;
+    return <ProgrammeBuilder programme={builderProgramme} onClose={closeBuilder} openRoadmap={builderOpenRoadmap}/>;
   }
 
   const tabs = [
