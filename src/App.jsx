@@ -71,6 +71,16 @@ export default function App() {
       .single();
     setProfile(data);
     setAuthLoading(false);
+
+    const pendingInvite = localStorage.getItem('pt_pending_invite');
+    if (pendingInvite) {
+      localStorage.removeItem('pt_pending_invite');
+      await supabase
+        .from('invites')
+        .update({ claimed_by: userId, claimed_at: new Date().toISOString() })
+        .eq('code', pendingInvite)
+        .is('claimed_by', null);
+    }
   };
 
   const navigate = (target, opts) => {

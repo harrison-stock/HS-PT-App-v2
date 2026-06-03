@@ -22,6 +22,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
   const [dayLoading, setDayLoading] = React.useState(!openRoadmap);
   const [expandedExId, setExpandedExId]   = React.useState(null);
   const [expandedSetId, setExpandedSetId] = React.useState(null);
+  const [saveError, setSaveError]         = React.useState(null);
 
   const phase = prog.phaseList[phaseIdx];
   const days  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -39,7 +40,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
 
       const { data: dayRow } = await supabase
         .from('programme_days')
-        .select('id, notes')
+        .select('*')
         .eq('phase_id', phase.id)
         .eq('week_index', weekIdx)
         .eq('day_of_week', dayIdx)
@@ -69,8 +70,9 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
   const saveDay = async () => {
     if (!phase?.id || !day) return;
     setSaving(true);
+    setSaveError(null);
 
-    const { data: dayRow } = await supabase
+    const { data: dayRow, error: dayErr } = await supabase
       .from('programme_days')
       .upsert(
         { phase_id: phase.id, week_index: weekIdx, day_of_week: dayIdx, notes: day.notes || '' },
@@ -78,7 +80,11 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
       )
       .select('id').single();
 
-    if (!dayRow) { setSaving(false); return; }
+    if (!dayRow) {
+      setSaving(false);
+      setSaveError(dayErr?.message || 'Save failed — have you run migration 3 (notes_tempo)?');
+      return;
+    }
 
     await supabase.from('workout_sections').delete().eq('day_id', dayRow.id);
 
@@ -253,6 +259,16 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
 
       {/* Body */}
       <div className="scroller" style={{ flex: 1, padding: '14px 14px 28px', minHeight: 0 }}>
+        {saveError && (
+          <div className="mono" style={{
+            marginBottom: 12, padding: '10px 12px', borderRadius: 8, fontSize: 10, lineHeight: 1.5,
+            background: 'color-mix(in srgb, var(--c-coral) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--c-coral) 35%, transparent)',
+            color: 'var(--c-coral)', letterSpacing: '0.04em',
+          }}>
+            ✕ {saveError}
+          </div>
+        )}
         {dayLoading ? (
           <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>LOADING…</div>
         ) : !day ? (

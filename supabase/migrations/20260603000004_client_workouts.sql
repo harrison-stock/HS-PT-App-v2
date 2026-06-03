@@ -14,6 +14,16 @@ create table if not exists public.client_workouts (
 
 alter table public.client_workouts enable row level security;
 
+drop policy if exists "client_workouts: trainer all"                   on public.client_workouts;
+drop policy if exists "client_workouts: client read"                   on public.client_workouts;
+drop policy if exists "client_workouts: client update"                 on public.client_workouts;
+drop policy if exists "programme_days: client read via assignment"     on public.programme_days;
+drop policy if exists "workout_sections: client read via assignment"   on public.workout_sections;
+drop policy if exists "section_exercises: client read via assignment"  on public.section_exercises;
+drop policy if exists "exercise_sets: client read via assignment"      on public.exercise_sets;
+drop policy if exists "programme_phases: client read via assignment"   on public.programme_phases;
+drop policy if exists "programmes: client read via assignment"         on public.programmes;
+
 -- Trainer manages all workouts they've assigned
 create policy "client_workouts: trainer all"
   on public.client_workouts for all

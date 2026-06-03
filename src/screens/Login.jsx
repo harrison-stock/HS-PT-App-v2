@@ -3,11 +3,16 @@ import { supabase } from '../lib/supabase'
 import { HexShape } from '../components/hex'
 
 export function Login() {
+  const invite = React.useMemo(() => {
+    const p = new URLSearchParams(window.location.search);
+    return { code: p.get('invite'), tid: p.get('tid'), name: p.get('name') };
+  }, []);
+
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState(null)
-  const [mode, setMode] = React.useState('signin')
+  const [mode, setMode] = React.useState(invite.code ? 'signup' : 'signin')
   const [signedUp, setSignedUp] = React.useState(false)
 
   const submit = async (e) => {
@@ -22,12 +27,16 @@ export function Login() {
       })
       if (err) setError(err.message)
     } else {
-      const { error: err } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-      })
-      if (err) setError(err.message)
-      else setSignedUp(true)
+      const opts = invite.code
+        ? { options: { data: { name: invite.name || '', trainer_id: invite.tid || '' } } }
+        : {};
+      const { error: err } = await supabase.auth.signUp({ email: email.trim(), password, ...opts })
+      if (err) {
+        setError(err.message)
+      } else {
+        if (invite.code) localStorage.setItem('pt_pending_invite', invite.code);
+        setSignedUp(true)
+      }
     }
 
     setLoading(false)
@@ -74,6 +83,20 @@ export function Login() {
 
       {/* Form */}
       <form onSubmit={submit} style={{ width: '100%', maxWidth: 340, display: 'grid', gap: 14 }}>
+        {invite.code && mode === 'signup' && (
+          <div style={{
+            padding: '12px 14px', borderRadius: 10,
+            background: 'var(--accent-soft)', border: '1px solid var(--accent)',
+          }}>
+            <div className="mono" style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.14em', fontWeight: 700, marginBottom: 4 }}>
+              YOU'VE BEEN INVITED
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+              {invite.name ? `Welcome, ${invite.name}. ` : ''}
+              Create your account to connect with your trainer.
+            </div>
+          </div>
+        )}
         <div>
           <div className="label" style={{ marginBottom: 7 }}>EMAIL</div>
           <input

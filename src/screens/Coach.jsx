@@ -18,6 +18,7 @@ export function Coach({ go, trainerId }) {
   const [loadingProgs, setLoadingProgs]     = React.useState(true);
   const [clients, setClients]               = React.useState([]);
   const [loadingClients, setLoadingClients] = React.useState(true);
+  const [inviteOpen, setInviteOpen]         = React.useState(false);
 
   React.useEffect(() => {
     fetchProgrammes();
@@ -95,7 +96,7 @@ export function Coach({ go, trainerId }) {
         ))}
       </div>
 
-      {tab === 'clients'    && <ClientsTab clients={clients} loading={loadingClients} onPick={setClientId}/>}
+      {tab === 'clients'    && <ClientsTab clients={clients} loading={loadingClients} onPick={setClientId} onInvite={() => setInviteOpen(true)}/>}
       {tab === 'programmes' && <ProgrammesTab programmes={programmes} loading={loadingProgs} onPick={setProgrammeId} onNew={newProgramme}/>}
       {tab === 'schedule'   && <ScheduleTab/>}
       {tab === 'inbox'      && <InboxTab/>}
@@ -112,6 +113,12 @@ export function Coach({ go, trainerId }) {
         <ProgrammeSheet p={programme}
           onClose={() => setProgrammeId(null)}
           onEdit={() => openBuilder(programme)}
+        />
+      )}
+      {inviteOpen && (
+        <InviteSheet
+          trainerId={trainerId}
+          onClose={() => setInviteOpen(false)}
         />
       )}
     </div>
@@ -252,7 +259,7 @@ function KPIRow() {
 }
 
 // ── CLIENTS TAB ─────────────────────────────────────────────────
-function ClientsTab({ clients, loading, onPick }) {
+function ClientsTab({ clients, loading, onPick, onInvite }) {
   const [q, setQ] = React.useState('');
 
   const filtered = clients.filter(c =>
@@ -269,7 +276,7 @@ function ClientsTab({ clients, loading, onPick }) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search clients..."
           style={{ flex: 1, background: 'transparent', border: 0, outline: 'none', color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 12 }}/>
-        <button style={{
+        <button onClick={onInvite} style={{
           all: 'unset', cursor: 'pointer',
           padding: '4px 8px', borderRadius: 6,
           background: 'var(--accent-soft)', color: 'var(--accent)',
@@ -876,6 +883,122 @@ function AssignSheet({ clientId, clientName, trainerId, programmes, onClose }) {
     </SheetShell>
   );
 }
+
+// ── INVITE SHEET ────────────────────────────────────────────────
+function InviteSheet({ trainerId, onClose }) {
+  const [clientName,  setClientName]  = React.useState('');
+  const [clientEmail, setClientEmail] = React.useState('');
+  const [saving,      setSaving]      = React.useState(false);
+  const [inviteUrl,   setInviteUrl]   = React.useState(null);
+  const [copied,      setCopied]      = React.useState(false);
+  const [error,       setError]       = React.useState(null);
+
+  const create = async () => {
+    if (!clientName.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    const { data: invite, error: err } = await supabase
+      .from('invites')
+      .insert({ trainer_id: trainerId, client_name: clientName.trim(), client_email: clientEmail.trim() })
+      .select('code')
+      .single();
+    setSaving(false);
+    if (err || !invite) { setError(err?.message || 'Could not create invite'); return; }
+    const url = `${window.location.origin}?invite=${invite.code}&tid=${trainerId}&name=${encodeURIComponent(clientName.trim())}`;
+    setInviteUrl(url);
+  };
+
+  const copy = () => {
+    navigator.clipboard.writeText(inviteUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <SheetShell onClose={onClose}>
+      <div style={{ padding: '0 18px 14px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div className="label" style={{ marginBottom: 4 }}>// INVITE CLIENT</div>
+        <div className="h-bold" style={{ fontSize: 20 }}>NEW CLIENT INVITE</div>
+      </div>
+
+      <div className="scroller" style={{ flex: 1, padding: '16px 18px', minHeight: 0, display: 'grid', gap: 16, alignContent: 'start' }}>
+        {!inviteUrl ? (
+          <>
+            {error && (
+              <div className="mono" style={{ fontSize: 10, color: 'var(--c-coral)', padding: '10px 12px', background: 'color-mix(in srgb, var(--c-coral) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--c-coral) 35%, transparent)', borderRadius: 8, letterSpacing: '0.04em' }}>
+                {error}
+              </div>
+            )}
+            <div>
+              <div className="label" style={{ marginBottom: 7 }}>// CLIENT NAME</div>
+              <input
+                value={clientName} onChange={e => setClientName(e.target.value)}
+                placeholder="e.g. Sarah Jones"
+                style={inviteInputSt}
+              />
+            </div>
+            <div>
+              <div className="label" style={{ marginBottom: 7 }}>// CLIENT EMAIL (OPTIONAL)</div>
+              <input
+                type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)}
+                placeholder="client@email.com"
+                style={inviteInputSt}
+              />
+            </div>
+            <div className="mono" style={{
+              fontSize: 10, color: 'var(--text-3)', lineHeight: 1.6,
+              padding: '10px 12px', background: 'var(--bg-2)', borderRadius: 8,
+            }}>
+              Generates a one-time sign-up link. The client clicks it to create their account and connect to you automatically.
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <div style={{ fontSize: 28, marginBottom: 8, color: 'var(--accent)', filter: 'drop-shadow(0 0 calc(10px * var(--glow)) var(--accent-glow))' }}>✓</div>
+              <div className="h-bold" style={{ fontSize: 16, color: 'var(--accent)', marginBottom: 4 }}>INVITE CREATED</div>
+              <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>FOR {clientName.toUpperCase()}</div>
+            </div>
+            <div>
+              <div className="label" style={{ marginBottom: 7 }}>// INVITE LINK</div>
+              <div style={{
+                padding: '10px 12px', background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+                borderRadius: 10, wordBreak: 'break-all',
+                fontFamily: 'JetBrains Mono', fontSize: 10, color: 'var(--text-2)', lineHeight: 1.7,
+              }}>{inviteUrl}</div>
+            </div>
+            <button onClick={copy} className={copied ? 'btn-primary' : 'btn-ghost'} style={{ width: '100%' }}>
+              {copied ? '✓ COPIED' : '⎘ COPY INVITE LINK'}
+            </button>
+            <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', lineHeight: 1.5, textAlign: 'center' }}>
+              Send this to your client. They sign up via the link and are connected to your account automatically.
+            </div>
+          </>
+        )}
+      </div>
+
+      {!inviteUrl && (
+        <div style={{ padding: '12px 18px 28px', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+          <button
+            onClick={create}
+            disabled={!clientName.trim() || saving}
+            className="btn-primary"
+            style={{ width: '100%', opacity: clientName.trim() ? 1 : 0.4, pointerEvents: clientName.trim() ? 'auto' : 'none' }}>
+            {saving ? 'CREATING…' : 'CREATE INVITE LINK →'}
+          </button>
+        </div>
+      )}
+    </SheetShell>
+  );
+}
+
+const inviteInputSt = {
+  width: '100%', boxSizing: 'border-box',
+  background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+  borderRadius: 10, padding: '12px 14px',
+  color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 13,
+  outline: 'none',
+};
 
 // ── PROGRAMME DETAIL SHEET ──────────────────────────────────────
 function ProgrammeSheet({ p, onClose, onEdit }) {
