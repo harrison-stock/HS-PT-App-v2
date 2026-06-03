@@ -78,11 +78,22 @@ export default function App() {
     const pendingInvite = localStorage.getItem('pt_pending_invite');
     if (pendingInvite) {
       localStorage.removeItem('pt_pending_invite');
+      const { data: inv } = await supabase
+        .from('invites')
+        .select('managed_client_id')
+        .eq('code', pendingInvite)
+        .single();
       await supabase
         .from('invites')
         .update({ claimed_by: userId, claimed_at: new Date().toISOString() })
         .eq('code', pendingInvite)
         .is('claimed_by', null);
+      if (inv?.managed_client_id) {
+        await supabase
+          .from('managed_clients')
+          .update({ linked_profile_id: userId })
+          .eq('id', inv.managed_client_id);
+      }
     }
   };
 

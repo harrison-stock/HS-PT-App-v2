@@ -37,12 +37,12 @@ export function Coach({ go, trainerId }) {
 
   const fetchClients = async () => {
     setLoadingClients(true);
-    const [{ data: profiles }, { data: invites }] = await Promise.all([
+    const [{ data: profiles }, { data: managed }] = await Promise.all([
       supabase.from('profiles').select('id, name').eq('trainer_id', trainerId).eq('role', 'client'),
-      supabase.from('invites').select('id, client_name, client_email, code').eq('trainer_id', trainerId).is('claimed_by', null),
+      supabase.from('managed_clients').select('id, name, email').eq('trainer_id', trainerId).is('linked_profile_id', null),
     ]);
     const real    = (profiles || []).map(shapeClient);
-    const pending = (invites  || []).map(inv => shapePendingClient(inv, trainerId));
+    const pending = (managed  || []).map(shapeManagedClient);
     setClients([...real, ...pending]);
     setLoadingClients(false);
   };
@@ -162,7 +162,7 @@ export function Coach({ go, trainerId }) {
       {tab === 'schedule'   && <ScheduleTab/>}
       {tab === 'inbox'      && <InboxTab/>}
 
-      {activeClient && !activeClient.pending && (
+      {activeClient && (
         <ClientSheet
           c={activeClient}
           trainerId={trainerId}
@@ -170,9 +170,6 @@ export function Coach({ go, trainerId }) {
           onClose={() => setClientId(null)}
           go={go}
         />
-      )}
-      {activeClient && activeClient.pending && (
-        <PendingClientSheet c={activeClient} onClose={() => setClientId(null)}/>
       )}
       {programme && (
         <ProgrammeSheet p={programme}
@@ -227,18 +224,17 @@ function shapeClient(p) {
   };
 }
 
-function shapePendingClient(inv, trainerId) {
-  const name = inv.client_name || 'Invited Client';
+function shapeManagedClient(mc) {
+  const name = mc.name || 'Client';
   const parts = name.trim().split(/\s+/);
   const initials = parts.map(w => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
   const accent = CLIENT_ACCENTS[name.charCodeAt(0) % CLIENT_ACCENTS.length];
-  const inviteUrl = `${window.location.origin}?invite=${inv.code}&tid=${trainerId}&name=${encodeURIComponent(name)}`;
   return {
-    id: inv.id, name, initials, accent, inviteUrl,
-    email: inv.client_email,
-    pending: true,
-    status: 'invited',
-    phaseLabel: 'Invite pending',
+    id: mc.id, name, initials, accent,
+    email: mc.email,
+    managed: true,
+    status: 'managed',
+    phaseLabel: 'Awaiting app sign-up',
     lastSeen: '—',
     streak: 0, prsThisWeek: 0, sessionsThisWeek: 0, sessionsTarget: 3,
   };
@@ -751,6 +747,16 @@ function ClientSheet({ c, trainerId, programmes, onClose, go }) {
       </div>
 
       <div className="scroller" style={{ flex: 1, padding: '14px 18px 18px', minHeight: 0 }}>
+        {c.managed && (
+          <div className="mono" style={{
+            fontSize: 10, color: 'var(--c-amber)', padding: '10px 12px', marginBottom: 12,
+            background: 'color-mix(in srgb, var(--c-amber) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--c-amber) 35%, transparent)',
+            borderRadius: 8, letterSpacing: '0.06em', lineHeight: 1.6,
+          }}>
+            ◉ CLIENT HAS NOT YET SIGNED UP — LOG SESSION IS STILL AVAILABLE
+          </div>
+        )}
         <div className="label" style={{ marginBottom: 8 }}>// QUICK ACTIONS</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <SheetAction icon="✉" label="MESSAGE"/>
@@ -1090,13 +1096,24 @@ function InviteSheet({ trainerId, onClose, onCreated }) {
     if (!clientName.trim() || saving) return;
     setSaving(true);
     setError(null);
-    const { data: invite, error: err } = await supabase
+
+    // Create the managed client row so the trainer can work with them immediately
+    const { data: mc, error: mcErr } = await supabase
+      .from('managed_clients')
+      .insert({ trainer_id: trainerId, name: clientName.trim(), email: clientEmail.trim() })
+      .select('id')
+      .single();
+    if (mcErr || !mc) { setSaving(false); setError(mcErr?.message || 'Could not add client'); return; }
+
+    // Create an invite linked to this managed client (for the client to sign up later)
+    const { data: invite, error: invErr } = await supabase
       .from('invites')
-      .insert({ trainer_id: trainerId, client_name: clientName.trim(), client_email: clientEmail.trim() })
+      .insert({ trainer_id: trainerId, client_name: clientName.trim(), client_email: clientEmail.trim(), managed_client_id: mc.id })
       .select('code')
       .single();
     setSaving(false);
-    if (err || !invite) { setError(err?.message || 'Could not create invite'); return; }
+    if (invErr || !invite) { setError(invErr?.message || 'Could not create invite link'); return; }
+
     const url = `${window.location.origin}?invite=${invite.code}&tid=${trainerId}&name=${encodeURIComponent(clientName.trim())}`;
     setInviteUrl(url);
     onCreated?.();
