@@ -1,11 +1,81 @@
 import React from 'react'
+import { supabase } from '../lib/supabase'
 import { BODY_METRICS, MUSCLE_VOLUME, MUSCLE_LABELS, EXERCISE_HISTORY, EXERCISE_CATEGORIES } from '../data/index'
 import { MUSCLE_BODY } from '../data/musclePaths'
 import { HexBackButton, Hex, HexShape } from '../components/hex'
-import { IconHeart, IconDumbbell, IconCamera2, IconChevronRight, IconPlus, IconTrophy, IconCheck } from '../components/icons'
+import { IconHeart, IconDumbbell, IconCamera2, IconChevronRight, IconPlus, IconTrophy, IconCheck, IconBand, IconFlame, IconLeaf } from '../components/icons'
+
+const ZONE_COLOR_ALL = {
+  chest: '#3F84D9', back: '#F39E1F', legs: '#E0A5B8',
+  shoulders: '#EE6A6A', arms: '#9D7CE0', core: '#8086A3',
+  MAIN: 'var(--accent)', BANDED: 'var(--c-amber)',
+  PULSE_RAISER: 'var(--c-coral)', COOLDOWN: 'var(--accent-2)',
+};
+
+const CAT_ICON = (id, sz) => {
+  if (id === 'MAIN') return <IconDumbbell size={sz} />;
+  if (id === 'BANDED') return <IconBand size={sz} />;
+  if (id === 'PULSE_RAISER') return <IconFlame size={sz} />;
+  if (id === 'COOLDOWN') return <IconLeaf size={sz} />;
+  return null;
+};
+
+async function loadWeightData(userId) {
+  const { data: sessions } = await supabase
+    .from('workout_sessions')
+    .select(`id, completed_at, logged_sets ( session_id, exercise_id, set_index, actual_weight_kg, actual_reps, section_exercises ( id, name, workout_sections ( kind ) ) )`)
+    .eq('client_id', userId)
+    .not('completed_at', 'is', null)
+    .order('completed_at', { ascending: false });
+
+  if (!sessions?.length) return { cats: [], exs: [] };
+
+  const exMap = new Map();
+  for (const sess of sessions) {
+    const d = new Date(sess.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    for (const ls of (sess.logged_sets || [])) {
+      const se = ls.section_exercises;
+      if (!se) continue;
+      const kind = se.workout_sections?.kind || 'MAIN';
+      if (!exMap.has(se.id)) exMap.set(se.id, { id: se.id, name: se.name, category: kind, sessMap: new Map() });
+      const ex = exMap.get(se.id);
+      if (!ex.sessMap.has(sess.id)) ex.sessMap.set(sess.id, { d, completedAt: sess.completed_at, sets: [] });
+      ex.sessMap.get(sess.id).sets.push({ w: parseFloat(ls.actual_weight_kg) || 0, r: ls.actual_reps || 0 });
+    }
+  }
+
+  const exs = [];
+  for (const ex of exMap.values()) {
+    const sessArr = [...ex.sessMap.values()].sort((a, b) => new Date(a.completedAt) - new Date(b.completedAt));
+    const history = sessArr.map(sg => {
+      const maxW = sg.sets.reduce((m, s) => Math.max(m, s.w), 0);
+      const atMax = sg.sets.find(s => s.w === maxW) || sg.sets[0];
+      return { d: sg.d, w: maxW, r: atMax?.r || 0 };
+    });
+    const best = history.reduce((b, h) => h.w > b.w ? h : b, history[0] || { w: 0, r: 0 });
+    const prevBest = history.length > 1 ? history.slice(0, -1).reduce((b, h) => h.w > b.w ? h : b, history[0]) : null;
+    const last = history[history.length - 1] || { w: 0, r: 0 };
+    const isPR = !!prevBest && last.w > prevBest.w;
+    const allSets = sessArr.flatMap(sg => sg.sets);
+    const maxR = allSets.reduce((b, s) => s.r > b.r ? s : b, allSets[0] || { r: 0, w: 0 });
+    exs.push({
+      id: ex.id, name: ex.name, category: ex.category, muscle: '',
+      pr: isPR,
+      maxWeight: { value: best.w, unit: 'kg', reps: best.r, delta: isPR ? `+${(last.w - prevBest.w).toFixed(1)}kg` : null },
+      maxReps: { value: maxR.r, weight: maxR.w },
+      history,
+    });
+  }
+
+  const kindSet = [...new Set(exs.map(e => e.category))];
+  const KIND_LABEL = { MAIN: 'Main Lifts', BANDED: 'Activation', PULSE_RAISER: 'Pulse Raiser', COOLDOWN: 'Cooldown' };
+  const cats = kindSet.map(k => ({ id: k, label: KIND_LABEL[k] || k, accent: ZONE_COLOR_ALL[k] || 'var(--accent)' }));
+
+  return { cats, exs };
+}
 
 // Progress — Body metrics + Weight metrics (categorized + muscle map) tabs
-export function Progress({ go }) {
+export function Progress({ go, userId }) {
   const [tab, setTab] = React.useState('weight');
   const [range, setRange] = React.useState('7d');
 
@@ -30,7 +100,7 @@ export function Progress({ go }) {
         <TabPill active={tab === 'photos'} onClick={() => setTab('photos')} icon={<IconCamera2 size={14} />} label="PHOTOS" />
       </div>
 
-      {tab === 'body' ? <BodyTab /> : tab === 'photos' ? <PhotosTab /> : <WeightTab range={range} />}
+      {tab === 'body' ? <BodyTab /> : tab === 'photos' ? <PhotosTab /> : <WeightTab range={range} userId={userId} />}
     </div>);
 
 }
@@ -515,28 +585,48 @@ function Sparkline({ data }) {
 
 // ── WEIGHT TAB ────────────────────────────────────────────────────
 // Sub-views: 'cats' (categories grid), 'map' (muscle heatmap), drill-down on category, drill-down on exercise
-function WeightTab({ range }) {
-  const [view, setView] = React.useState('cats'); // cats | map
-  const [catId, setCatId] = React.useState(null); // category drill-down
-  const [exId, setExId] = React.useState(null); // exercise drill-down
+function WeightTab({ range, userId }) {
+  const [view, setView] = React.useState('cats');
+  const [catId, setCatId] = React.useState(null);
+  const [exId, setExId] = React.useState(null);
+  const [dbLoading, setDbLoading] = React.useState(!!userId);
+  const [liveCats, setLiveCats] = React.useState(null);
+  const [liveExs, setLiveExs] = React.useState(null);
 
-  const drilledEx = EXERCISE_HISTORY.find((e) => e.id === exId);
+  React.useEffect(() => {
+    if (!userId) return;
+    setDbLoading(true);
+    loadWeightData(userId).then(({ cats, exs }) => {
+      setLiveCats(cats);
+      setLiveExs(exs);
+      setDbLoading(false);
+    });
+  }, [userId]);
+
+  const cats = liveCats !== null ? liveCats : EXERCISE_CATEGORIES;
+  const exs = liveExs !== null ? liveExs : EXERCISE_HISTORY;
+
+  const drilledEx = exs.find(e => e.id === exId);
   if (drilledEx) return <ExerciseDrill ex={drilledEx} onBack={() => setExId(null)} />;
 
   if (catId) {
-    const cat = EXERCISE_CATEGORIES.find((c) => c.id === catId);
-    return <CategoryDrill cat={cat} onBack={() => setCatId(null)} onPick={(id) => setExId(id)} />;
+    const cat = cats.find(c => c.id === catId);
+    return <CategoryDrill cat={cat} onBack={() => setCatId(null)} onPick={id => setExId(id)} exs={exs} />;
   }
+
+  if (dbLoading) return (
+    <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+      <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.12em' }}>LOADING…</div>
+    </div>
+  );
 
   return (
     <>
-      {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         <SubTab active={view === 'cats'} onClick={() => setView('cats')} label="CATEGORIES" icon="▦" />
         <SubTab active={view === 'map'} onClick={() => setView('map')} label="MUSCLE MAP" icon="◉" />
       </div>
-
-      {view === 'cats' ? <CategoriesView onPick={setCatId} /> : <MuscleMapView range={range} />}
+      {view === 'cats' ? <CategoriesView onPick={setCatId} cats={cats} exs={exs} /> : <MuscleMapView range={range} />}
     </>);
 
 }
@@ -627,23 +717,32 @@ function MuscleZoneGlyph({ zoneId, color, size = 104 }) {
 
 }
 
-function CategoriesView({ onPick }) {
-  const cats = EXERCISE_CATEGORIES;
-  const exs = EXERCISE_HISTORY;
-  const totalPRs = exs.filter((e) => e.pr).length;
+function CategoriesView({ onPick, cats, exs }) {
+  const totalPRs = exs.filter(e => e.pr).length;
+  const SECTION_KINDS = new Set(['MAIN', 'BANDED', 'PULSE_RAISER', 'COOLDOWN']);
+
+  if (!cats.length) return (
+    <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+      <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', lineHeight: 1.7 }}>
+        NO SESSIONS LOGGED YET<br/>
+        <span style={{ fontSize: 9 }}>Complete workouts to see your exercise history here</span>
+      </div>
+    </div>
+  );
 
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '0 4px 10px' }}>
         <div className="label">// EXERCISE CATEGORIES</div>
-        <span className="chip chip-lime">{totalPRs} NEW PR</span>
+        {totalPRs > 0 && <span className="chip chip-lime">{totalPRs} NEW PR</span>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {cats.map((cat) => {
-          const items = exs.filter((e) => e.category === cat.id);
-          const prs = items.filter((e) => e.pr).length;
-          const zoneColor = ZONE_COLOR[cat.id] || cat.accent;
+          const items = exs.filter(e => e.category === cat.id);
+          const prs = items.filter(e => e.pr).length;
+          const zoneColor = ZONE_COLOR_ALL[cat.id] || cat.accent || 'var(--accent)';
+          const isSection = SECTION_KINDS.has(cat.id);
           return (
             <button key={cat.id} onClick={() => onPick(cat.id)}
             style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
@@ -652,32 +751,36 @@ function CategoriesView({ onPick }) {
                 borderColor: 'var(--line)',
                 background: `linear-gradient(135deg, color-mix(in srgb, ${zoneColor} 9%, transparent), transparent 55%), var(--bg-2)`
               }}>
-                {/* Zoomed muscle-zone illustration — confined to the right, fades out under the text */}
                 <div style={{
                   position: 'absolute', top: 0, right: 0, bottom: 0, width: 98,
                   display: 'grid', placeItems: 'center', pointerEvents: 'none',
                   WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, #000 42%)',
                   maskImage: 'linear-gradient(90deg, transparent 0%, #000 42%)'
                 }}>
-                  <MuscleZoneGlyph zoneId={cat.id} color={zoneColor} size={132} />
+                  {isSection ? (
+                    <Hex size={58} square style={{ background: `color-mix(in srgb, ${zoneColor} 16%, var(--bg-3))`, border: `1px solid color-mix(in srgb, ${zoneColor} 30%, transparent)`, color: zoneColor }}>
+                      {CAT_ICON(cat.id, 26)}
+                    </Hex>
+                  ) : (
+                    <MuscleZoneGlyph zoneId={cat.id} color={zoneColor} size={132} />
+                  )}
                 </div>
-                {/* Text — sits above the illustration, left-aligned for legibility */}
                 <div style={{ position: 'relative' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <HexShape size={11} fill={zoneColor} style={{ flexShrink: 0 }} />
                     <span className="label" style={{ color: 'var(--text)', opacity: 1 }}>{cat.label.toUpperCase()}</span>
                   </div>
                   <div className="h-bold" style={{ fontSize: 24, marginTop: 10 }}>{items.length}<span style={{ fontSize: 11, color: 'var(--text-2)', marginLeft: 4, fontFamily: 'JetBrains Mono', letterSpacing: '0.08em' }}>EXR</span></div>
-                  {prs > 0 &&
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 12,
-                    padding: '3px 8px', borderRadius: 999,
-                    background: `color-mix(in srgb, ${zoneColor} 15%, transparent)`,
-                    border: `1px solid color-mix(in srgb, ${zoneColor} 38%, transparent)`,
-                    fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.04em', fontWeight: 700,
-                    color: zoneColor
-                  }}><IconTrophy size={11} sw={1.8} />×{prs}</div>
-                  }
+                  {prs > 0 && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 12,
+                      padding: '3px 8px', borderRadius: 999,
+                      background: `color-mix(in srgb, ${zoneColor} 15%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${zoneColor} 38%, transparent)`,
+                      fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.04em', fontWeight: 700,
+                      color: zoneColor
+                    }}><IconTrophy size={11} sw={1.8} />×{prs}</div>
+                  )}
                 </div>
               </div>
             </button>);
@@ -689,9 +792,9 @@ function CategoriesView({ onPick }) {
 }
 
 // ── CATEGORY DRILL-DOWN ───────────────────────────────────────────
-function CategoryDrill({ cat, onBack, onPick }) {
-  const items = EXERCISE_HISTORY.filter((e) => e.category === cat.id);
-  const zc = ZONE_COLOR[cat.id] || cat.accent;
+function CategoryDrill({ cat, onBack, onPick, exs }) {
+  const items = exs.filter(e => e.category === cat.id);
+  const zc = ZONE_COLOR_ALL[cat.id] || cat.accent || 'var(--accent)';
   return (
     <>
       <HexBackButton onClick={onBack} label="CATEGORIES" size={34} style={{ marginBottom: 14 }} />
@@ -754,6 +857,7 @@ function PRStat({ label, value, sub, delta, accent }) {
 }
 
 function MiniLine({ data, color }) {
+  if (data.length < 2) return null;
   const max = Math.max(...data);const min = Math.min(...data);
   const range = max - min || 1;
   const W = 300,H = 36;
@@ -1001,15 +1105,15 @@ function BackSilhouette() {return <FrontSilhouette />;}
 // ── EXERCISE DRILL ────────────────────────────────────────────────
 function ExerciseDrill({ ex, onBack }) {
   const [view, setView] = React.useState('weight');
-  const cat = EXERCISE_CATEGORIES.find((c) => c.id === ex.category);
-  const zc = ZONE_COLOR[ex.category] || 'var(--accent)';
+  const cat = EXERCISE_CATEGORIES.find(c => c.id === ex.category);
+  const zc = ZONE_COLOR_ALL[ex.category] || 'var(--accent)';
 
   return (
     <>
       <HexBackButton onClick={onBack} label="Back" size={34} style={{ marginBottom: 14 }} />
 
       <div className="card" style={{ padding: 16, marginBottom: 14, background: `linear-gradient(135deg, color-mix(in srgb, ${zc} 12%, transparent), transparent 60%), var(--bg-2)` }}>
-        <div className="label" style={{ marginBottom: 4 }}>// {(cat?.label || ex.muscle).toUpperCase()} · {ex.muscle.toUpperCase()}</div>
+        <div className="label" style={{ marginBottom: 4 }}>// {(cat?.label || ex.category || ex.muscle || '').toUpperCase()}{ex.muscle ? ` · ${ex.muscle.toUpperCase()}` : ''}</div>
         <div className="h-bold" style={{ fontSize: 22, marginBottom: 14 }}>{ex.name.toUpperCase()}</div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
@@ -1115,6 +1219,11 @@ function expandSets(h) {
 function BigChart({ data, view, zoneColor }) {
   const [active, setActive] = React.useState(null);
   const vals = data.map((d) => view === 'weight' ? d.w : d.r);
+  if (vals.length < 2) return (
+    <div style={{ padding: '18px 0', textAlign: 'center', opacity: 0.6 }}>
+      <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.1em' }}>LOG MORE SESSIONS TO SEE YOUR TREND</div>
+    </div>
+  );
   const max = Math.max(...vals);const min = Math.min(...vals);
   const range = max - min || 1;
   const W = 340,H = 170;
