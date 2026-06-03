@@ -1,18 +1,73 @@
 import React from 'react'
-import { TODAY_WORKOUT, TASKS } from '../data/index'
+import { supabase } from '../lib/supabase'
+import { TASKS } from '../data/index'
 import { HEX_RATIO, HexShape, Hex } from '../components/hex'
 import { IconBell, IconPlay, IconChart, IconCheck, IconClipboard, IconDoc, IconScale, IconCamera2, IconX2, IconPlus } from '../components/icons'
 
+const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+function shapeWorkout(row) {
+  const day = row.programme_days;
+  if (!day) return null;
+  const phase = day.programme_phases;
+  const programme = phase?.programmes;
+  const exerciseCount = (day.workout_sections || [])
+    .reduce((n, s) => n + (s.section_exercises?.length || 0), 0);
+  const dayLabel = DAY_LABELS[day.day_of_week] || 'Day';
+  return {
+    id: row.id,
+    name: `${phase?.name || 'Workout'} · ${dayLabel}`,
+    tag: programme?.tag || 'STRENGTH',
+    duration: Math.max(30, exerciseCount * 3),
+    exerciseCount,
+    status: row.status,
+  };
+}
+
 // Dashboard / Home screen
-export function Dashboard({ go, user }) {
-  const w = TODAY_WORKOUT;
-  const name = user && user.name || 'Sarah Chen';
+export function Dashboard({ go, user, userId }) {
+  const name = (user && user.name) || 'Athlete';
   const firstName = name.trim().split(/\s+/)[0];
-  const initials = name.trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+  const initials = name.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
   const [tasks, setTasks] = React.useState(TASKS);
   const [formTask, setFormTask] = React.useState(null);
-  const done = (() => { try { return localStorage.getItem('hs_today_complete') === '1'; } catch (e) { return false; } })();
-  const completeTask = (id) => setTasks((prev) => prev.map((t) => t.id === id ? { ...t, done: true } : t));
+  const [todayWorkout, setTodayWorkout] = React.useState(null);
+  const [workoutLoading, setWorkoutLoading] = React.useState(true);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const done = todayWorkout?.status === 'completed';
+
+  React.useEffect(() => {
+    if (!userId) { setWorkoutLoading(false); return; }
+    supabase
+      .from('client_workouts')
+      .select(`
+        id, status,
+        programme_days (
+          id, day_of_week,
+          programme_phases (
+            id, name,
+            programmes ( id, name, tag )
+          ),
+          workout_sections (
+            id,
+            section_exercises ( id )
+          )
+        )
+      `)
+      .eq('client_id', userId)
+      .eq('scheduled_date', today)
+      .neq('status', 'skipped')
+      .order('created_at')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setTodayWorkout(data ? shapeWorkout(data) : null);
+        setWorkoutLoading(false);
+      });
+  }, [userId, today]);
+
+  const completeTask = id => setTasks(prev => prev.map(t => t.id === id ? { ...t, done: true } : t));
   return (
     <div className="scroller" style={{ padding: '0 16px 110px', paddingTop: 64 }}>
       {/* Top bar */}
@@ -49,43 +104,59 @@ export function Dashboard({ go, user }) {
         background: 'linear-gradient(180deg, rgba(0,245,255,0.06), rgba(176,114,255,0.04)) , var(--bg-2)',
         borderColor: 'color-mix(in srgb, var(--accent) 25%, var(--line))'
       }}>
-        {/* image strip */}
         <div style={{
           height: 120, position: 'relative',
           background: `linear-gradient(180deg, transparent 30%, var(--bg-2)) , url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&q=70') center/cover`
-        }}>
-        </div>
+        }}/>
         <div style={{ padding: 'var(--density-pad)' }}>
-          <div className="label" style={{ marginBottom: 6 }}>// PRIORITY PROTOCOL</div>
-          <div className="h-bold" style={{ fontSize: 22, lineHeight: 1.05, marginBottom: 12 }}>
-            {w.name.toUpperCase()}
-          </div>
-          <div style={{ display: 'flex', gap: 18, marginBottom: 14 }}>
-            <Stat label="DURATION" value={`${w.duration} MIN`} />
-            <Stat label="EXERCISES" value={w.exerciseCount} />
-            <Stat label="STATUS" value={done ? 'DONE' : 'READY'} color={done ? 'var(--accent)' : 'var(--lime)'} />
-          </div>
-          {done ?
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              padding: '13px', borderRadius: 12,
-              background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)',
-              color: 'var(--accent)', fontFamily: 'JetBrains Mono', fontWeight: 700, fontSize: 13, letterSpacing: '0.08em'
-            }}>
-              <IconCheck size={14} sw={3} /> COMPLETED
-            </div>
-            <button onClick={() => go('sessionresults')}
-            aria-label="View results" style={{ all: 'unset', cursor: 'pointer', display: 'grid', placeItems: 'center', width: 48 * HEX_RATIO, height: 48 }}>
-              <Hex size={48} square style={{ background: 'var(--bg-3)', border: '1px solid var(--line-strong)', color: 'var(--text)' }}>
-                <IconChart size={16} />
-              </Hex>
-            </button>
-          </div> :
-          <button className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: "var(--heading-deep)" }}
-          onClick={() => go('preview', { id: 'w1' })}>
-            <IconPlay size={14} /> START SESSION
-          </button>}
+          <div className="label" style={{ marginBottom: 6 }}>// TODAY'S SESSION</div>
+          {workoutLoading ? (
+            <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.12em', padding: '8px 0' }}>LOADING…</div>
+          ) : !todayWorkout ? (
+            <>
+              <div className="h-bold" style={{ fontSize: 22, lineHeight: 1.05, marginBottom: 12, color: 'var(--text-3)' }}>
+                REST DAY
+              </div>
+              <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.08em' }}>
+                No session scheduled today.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="h-bold" style={{ fontSize: 22, lineHeight: 1.05, marginBottom: 12 }}>
+                {todayWorkout.name.toUpperCase()}
+              </div>
+              <div style={{ display: 'flex', gap: 18, marginBottom: 14 }}>
+                <Stat label="DURATION" value={`${todayWorkout.duration} MIN`}/>
+                <Stat label="EXERCISES" value={todayWorkout.exerciseCount}/>
+                <Stat label="STATUS" value={done ? 'DONE' : 'READY'} color={done ? 'var(--accent)' : 'var(--lime)'}/>
+              </div>
+              {done ? (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    padding: '13px', borderRadius: 12,
+                    background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 45%, transparent)',
+                    color: 'var(--accent)', fontFamily: 'JetBrains Mono', fontWeight: 700, fontSize: 13, letterSpacing: '0.08em',
+                  }}>
+                    <IconCheck size={14} sw={3}/> COMPLETED
+                  </div>
+                  <button onClick={() => go('sessionresults')} aria-label="View results"
+                    style={{ all: 'unset', cursor: 'pointer', display: 'grid', placeItems: 'center', width: 48 * HEX_RATIO, height: 48 }}>
+                    <Hex size={48} square style={{ background: 'var(--bg-3)', border: '1px solid var(--line-strong)', color: 'var(--text)' }}>
+                      <IconChart size={16}/>
+                    </Hex>
+                  </button>
+                </div>
+              ) : (
+                <button className="btn-primary"
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--heading-deep)' }}
+                  onClick={() => go('workouts')}>
+                  <IconPlay size={14}/> START SESSION
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -478,4 +549,3 @@ function MicroStat({ icon, label, value, unit, color }) {
 
 }
 
-Dashboard = Dashboard;

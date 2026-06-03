@@ -2,8 +2,11 @@ import React from 'react'
 import { supabase } from '../lib/supabase'
 import { COACH_CLIENTS, COACH_INBOX, COACH_KPIS, COACH_SCHEDULE } from '../data/index'
 import { Hex, HexBackButton } from '../components/hex'
-import { IconBell, IconBolt, IconCalendar, IconChevronRight, IconMore, IconUser } from '../components/icons'
+import { IconBell, IconBolt, IconCalendar, IconCheck, IconChevronLeft, IconChevronRight, IconMore, IconUser } from '../components/icons'
 import { ProgrammeBuilder } from './ProgrammeBuilder'
+
+const CLIENT_ACCENTS = ['#46BBC0','#189CAA','#F39E1F','#EE6A6A','#3F84D9','#E0A5BB','#8086A3'];
+const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
 export function Coach({ go, trainerId }) {
   const [tab, setTab]                       = React.useState('clients');
@@ -13,8 +16,13 @@ export function Coach({ go, trainerId }) {
   const [builderOpenRoadmap, setBuilderOpenRoadmap] = React.useState(false);
   const [programmes, setProgrammes]         = React.useState([]);
   const [loadingProgs, setLoadingProgs]     = React.useState(true);
+  const [clients, setClients]               = React.useState([]);
+  const [loadingClients, setLoadingClients] = React.useState(true);
 
-  React.useEffect(() => { fetchProgrammes(); }, []);
+  React.useEffect(() => {
+    fetchProgrammes();
+    fetchClients();
+  }, []);
 
   const fetchProgrammes = async () => {
     setLoadingProgs(true);
@@ -24,6 +32,17 @@ export function Coach({ go, trainerId }) {
       .order('updated_at', { ascending: false });
     if (data) setProgrammes(data.map(shapeProgramme));
     setLoadingProgs(false);
+  };
+
+  const fetchClients = async () => {
+    setLoadingClients(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .eq('trainer_id', trainerId)
+      .eq('role', 'client');
+    if (data) setClients(data.map(shapeClient));
+    setLoadingClients(false);
   };
 
   const newProgramme = async () => {
@@ -52,13 +71,14 @@ export function Coach({ go, trainerId }) {
   const closeBuilder = () => { setBuilderProgramme(null); fetchProgrammes(); };
 
   const programme = programmes.find(p => p.id === programmeId);
+  const activeClient = clients.find(c => c.id === clientId);
 
   if (builderProgramme) {
     return <ProgrammeBuilder programme={builderProgramme} onClose={closeBuilder} openRoadmap={builderOpenRoadmap}/>;
   }
 
   const tabs = [
-    { id: 'clients',    label: 'Clients',    count: COACH_CLIENTS.length },
+    { id: 'clients',    label: 'Clients',    count: loadingClients ? null : clients.length },
     { id: 'programmes', label: 'Programmes', count: loadingProgs ? null : programmes.length },
     { id: 'schedule',   label: 'Today',      count: null },
     { id: 'inbox',      label: 'Inbox',      count: COACH_INBOX.filter(m => m.unread).length || null },
@@ -66,7 +86,7 @@ export function Coach({ go, trainerId }) {
 
   return (
     <div className="scroller coach-wrap">
-      <CoachHeader/>
+      <CoachHeader clientCount={clients.length}/>
       <KPIRow/>
 
       <div style={{ display: 'flex', gap: 4, marginTop: 16, marginBottom: 14 }}>
@@ -75,12 +95,19 @@ export function Coach({ go, trainerId }) {
         ))}
       </div>
 
-      {tab === 'clients'    && <ClientsTab onPick={setClientId}/>}
+      {tab === 'clients'    && <ClientsTab clients={clients} loading={loadingClients} onPick={setClientId}/>}
       {tab === 'programmes' && <ProgrammesTab programmes={programmes} loading={loadingProgs} onPick={setProgrammeId} onNew={newProgramme}/>}
       {tab === 'schedule'   && <ScheduleTab/>}
       {tab === 'inbox'      && <InboxTab/>}
 
-      {clientId  && <ClientSheet c={COACH_CLIENTS.find(c => c.id === clientId)} onClose={() => setClientId(null)}/>}
+      {activeClient && (
+        <ClientSheet
+          c={activeClient}
+          trainerId={trainerId}
+          programmes={programmes}
+          onClose={() => setClientId(null)}
+        />
+      )}
       {programme && (
         <ProgrammeSheet p={programme}
           onClose={() => setProgrammeId(null)}
@@ -101,6 +128,26 @@ function shapeProgramme(p) {
     clients: 0,
     lastEdited: relativeTime(p.updated_at),
     phaseList: phases.map(ph => ({ id: ph.id, name: ph.name, focus: ph.focus, weeks: ph.weeks })),
+  };
+}
+
+function shapeClient(p) {
+  const name = p.name || 'Client';
+  const parts = name.trim().split(/\s+/);
+  const initials = parts.map(w => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
+  const accent = CLIENT_ACCENTS[name.charCodeAt(0) % CLIENT_ACCENTS.length];
+  return {
+    id: p.id,
+    name,
+    initials,
+    accent,
+    status: 'active',
+    phaseLabel: 'No programme assigned',
+    lastSeen: '—',
+    streak: 0,
+    prsThisWeek: 0,
+    sessionsThisWeek: 0,
+    sessionsTarget: 3,
   };
 }
 
@@ -141,7 +188,7 @@ function CTab({ active, onClick, label, count }) {
 }
 
 // ── HEADER ──────────────────────────────────────────────────────
-function CoachHeader() {
+function CoachHeader({ clientCount }) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
   const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -172,7 +219,7 @@ function CoachHeader() {
           COACH HUB
         </div>
         <div style={{ color: 'var(--text-2)', fontSize: 13, marginTop: 6 }}>
-          <strong style={{ color: 'var(--accent)' }}>{COACH_CLIENTS.length}</strong> clients ·{' '}
+          <strong style={{ color: 'var(--accent)' }}>{clientCount}</strong> clients ·{' '}
           <strong style={{ color: 'var(--c-amber)' }}>{COACH_INBOX.filter(m => m.unread).length} unread</strong>
         </div>
       </div>
@@ -205,19 +252,12 @@ function KPIRow() {
 }
 
 // ── CLIENTS TAB ─────────────────────────────────────────────────
-function ClientsTab({ onPick }) {
-  const [filter, setFilter] = React.useState('all');
+function ClientsTab({ clients, loading, onPick }) {
   const [q, setQ] = React.useState('');
-  const filters = [
-    { id: 'all',       label: 'All' },
-    { id: 'attention', label: 'Attention', match: (c) => c.status === 'needs-attention' || c.status === 'inactive' },
-    { id: 'prs',       label: 'PR · 7d',   match: (c) => c.prsThisWeek > 0 },
-    { id: 'new',       label: 'New',       match: (c) => c.status === 'new' },
-  ];
-  const active   = filters.find(f => f.id === filter);
-  const filtered = COACH_CLIENTS
-    .filter(c => !active.match || active.match(c))
-    .filter(c => c.name.toLowerCase().includes(q.toLowerCase()));
+
+  const filtered = clients.filter(c =>
+    c.name.toLowerCase().includes(q.toLowerCase())
+  );
 
   return (
     <>
@@ -237,28 +277,27 @@ function ClientsTab({ onPick }) {
         }}>+ INVITE</button>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
-        {filters.map(f => (
-          <button key={f.id} onClick={() => setFilter(f.id)} style={{
-            all: 'unset', cursor: 'pointer', whiteSpace: 'nowrap',
-            padding: '5px 11px', borderRadius: 999,
-            border: '1px solid ' + (filter === f.id ? 'var(--accent)' : 'var(--line-strong)'),
-            background: filter === f.id ? 'var(--accent-soft)' : 'transparent',
-            color: filter === f.id ? 'var(--accent)' : 'var(--text-2)',
-            fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.1em', fontWeight: 600,
-            textTransform: 'uppercase',
-          }}>{f.label}</button>
-        ))}
-      </div>
-
-      <div style={{ display: 'grid', gap: 8 }}>
-        {filtered.map(c => <ClientRow key={c.id} c={c} onPick={() => onPick(c.id)}/>)}
-        {filtered.length === 0 && (
-          <div className="card" style={{ padding: 22, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-            No clients match
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>
+          LOADING…
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {filtered.map(c => <ClientRow key={c.id} c={c} onPick={() => onPick(c.id)}/>)}
+          {filtered.length === 0 && (
+            <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+              <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', marginBottom: 8 }}>
+                {clients.length === 0 ? 'NO CLIENTS YET' : 'NO CLIENTS MATCH'}
+              </div>
+              {clients.length === 0 && (
+                <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', lineHeight: 1.5 }}>
+                  Invite clients to get started.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -284,12 +323,6 @@ function ClientRow({ c, onPick }) {
             <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {c.name}
             </span>
-            {c.status === 'needs-attention' && (
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--c-coral)', boxShadow: '0 0 6px var(--c-coral)' }}/>
-            )}
-            {c.status === 'new' && (
-              <span className="chip chip-lime" style={{ fontSize: 8, padding: '1px 5px', letterSpacing: '0.1em' }}>NEW</span>
-            )}
           </div>
           <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {c.phaseLabel.toUpperCase()}
@@ -522,8 +555,22 @@ function InboxRow({ m }) {
 }
 
 // ── CLIENT DETAIL SHEET ─────────────────────────────────────────
-function ClientSheet({ c, onClose }) {
+function ClientSheet({ c, trainerId, programmes, onClose }) {
+  const [assignOpen, setAssignOpen] = React.useState(false);
   if (!c) return null;
+
+  if (assignOpen) {
+    return (
+      <AssignSheet
+        clientId={c.id}
+        clientName={c.name}
+        trainerId={trainerId}
+        programmes={programmes}
+        onClose={() => setAssignOpen(false)}
+      />
+    );
+  }
+
   return (
     <SheetShell onClose={onClose}>
       <div style={{ padding: '20px 18px 14px', borderBottom: '1px solid var(--line)' }}>
@@ -548,19 +595,11 @@ function ClientSheet({ c, onClose }) {
       </div>
 
       <div className="scroller" style={{ flex: 1, padding: '14px 18px 18px', minHeight: 0 }}>
-        <div className="label" style={{ marginBottom: 8 }}>// CURRENT PROGRAMME</div>
-        <div className="card" style={{ padding: 12, marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{c.programme}</div>
-          <div className="mono" style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.08em' }}>
-            {c.phaseLabel.toUpperCase()}
-          </div>
-        </div>
-
         <div className="label" style={{ marginBottom: 8 }}>// QUICK ACTIONS</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <SheetAction icon="✉" label="MESSAGE"/>
           <SheetAction icon="◯" label="LOG SESSION"/>
-          <SheetAction icon="◢" label="EDIT PLAN"/>
+          <SheetAction icon="◢" label="ASSIGN WORKOUT" onClick={() => setAssignOpen(true)}/>
           <SheetAction icon="▣" label="CHECK-IN"/>
         </div>
       </div>
@@ -587,9 +626,9 @@ function SmallKpi({ label, value, unit, color }) {
   );
 }
 
-function SheetAction({ icon, label }) {
+function SheetAction({ icon, label, onClick }) {
   return (
-    <button style={{
+    <button onClick={onClick} style={{
       all: 'unset', cursor: 'pointer',
       padding: '12px 10px', borderRadius: 10,
       background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
@@ -605,6 +644,236 @@ function SheetAction({ icon, label }) {
         {label}
       </span>
     </button>
+  );
+}
+
+// ── ASSIGN WORKOUT SHEET ────────────────────────────────────────
+function AssignSheet({ clientId, clientName, trainerId, programmes, onClose }) {
+  const [progId, setProgId]       = React.useState(null);
+  const [phaseIdx, setPhaseIdx]   = React.useState(0);
+  const [week, setWeek]           = React.useState(1);
+  const [days, setDays]           = React.useState([]);
+  const [loadingDays, setLoadingDays] = React.useState(false);
+  const [dayId, setDayId]         = React.useState(null);
+  const [date, setDate]           = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [saving, setSaving]       = React.useState(false);
+  const [saved, setSaved]         = React.useState(false);
+
+  const prog  = programmes.find(p => p.id === progId);
+  const phase = prog?.phaseList?.[phaseIdx];
+
+  React.useEffect(() => {
+    if (!phase?.id) { setDays([]); return; }
+    setDayId(null);
+    setLoadingDays(true);
+    supabase
+      .from('programme_days')
+      .select('id, day_of_week, notes')
+      .eq('phase_id', phase.id)
+      .eq('week_index', week - 1)
+      .order('day_of_week')
+      .then(({ data }) => { setDays(data || []); setLoadingDays(false); });
+  }, [phase?.id, week]);
+
+  const assign = async () => {
+    if (!dayId || !date || saving) return;
+    setSaving(true);
+    const { error } = await supabase.from('client_workouts').insert({
+      client_id: clientId,
+      trainer_id: trainerId,
+      day_id: dayId,
+      scheduled_date: date,
+      status: 'scheduled',
+    });
+    setSaving(false);
+    if (!error) {
+      setSaved(true);
+      setTimeout(onClose, 1400);
+    }
+  };
+
+  return (
+    <SheetShell onClose={onClose}>
+      <div style={{ padding: '0 18px 14px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div className="label" style={{ marginBottom: 4 }}>// ASSIGN WORKOUT</div>
+        <div className="h-bold" style={{ fontSize: 20 }}>TO {clientName.toUpperCase()}</div>
+      </div>
+
+      <div className="scroller" style={{ flex: 1, padding: '16px 18px', minHeight: 0, display: 'grid', gap: 18, alignContent: 'start' }}>
+
+        {/* 1. Programme */}
+        <div>
+          <div className="label" style={{ marginBottom: 8 }}>// PROGRAMME</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {programmes.length === 0 && (
+              <div className="card" style={{ padding: 14, textAlign: 'center', color: 'var(--text-3)', fontSize: 11 }}>
+                No programmes yet — create one first.
+              </div>
+            )}
+            {programmes.map(p => (
+              <button key={p.id}
+                onClick={() => { setProgId(p.id); setPhaseIdx(0); setWeek(1); setDayId(null); }}
+                style={{
+                  all: 'unset', cursor: 'pointer',
+                  padding: '10px 14px', borderRadius: 10,
+                  background: progId === p.id ? 'var(--accent-soft)' : 'var(--bg-2)',
+                  border: '1px solid ' + (progId === p.id ? 'var(--accent)' : 'var(--line)'),
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                <span style={{ fontFamily: 'JetBrains Mono', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                  {p.name}
+                </span>
+                <span className="mono" style={{ fontSize: 9, color: progId === p.id ? 'var(--accent)' : 'var(--text-3)', letterSpacing: '0.1em' }}>
+                  {p.weeks}W · {p.phases} PHASE{p.phases !== 1 ? 'S' : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 2. Phase */}
+        {prog && (
+          <div>
+            <div className="label" style={{ marginBottom: 8 }}>// PHASE</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {prog.phaseList.map((ph, i) => (
+                <button key={i}
+                  onClick={() => { setPhaseIdx(i); setWeek(1); setDayId(null); }}
+                  style={{
+                    all: 'unset', cursor: 'pointer',
+                    padding: '6px 12px', borderRadius: 8,
+                    background: phaseIdx === i ? 'var(--accent)' : 'var(--bg-2)',
+                    border: '1px solid ' + (phaseIdx === i ? 'var(--accent)' : 'var(--line-strong)'),
+                    color: phaseIdx === i ? 'var(--on-accent)' : 'var(--text-2)',
+                    fontFamily: 'JetBrains Mono', fontSize: 10, fontWeight: 600, letterSpacing: '0.1em',
+                  }}>
+                  P{i + 1} · {ph.name.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 3. Week */}
+        {phase && (
+          <div>
+            <div className="label" style={{ marginBottom: 8 }}>// WEEK</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                onClick={() => { setWeek(w => Math.max(1, w - 1)); setDayId(null); }}
+                disabled={week <= 1}
+                style={{
+                  all: 'unset', cursor: week > 1 ? 'pointer' : 'default',
+                  opacity: week <= 1 ? 0.3 : 1,
+                  width: 34, height: 34, borderRadius: 8,
+                  background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+                  display: 'grid', placeItems: 'center', color: 'var(--text)', fontSize: 18,
+                }}>
+                <IconChevronLeft size={16}/>
+              </button>
+              <div className="mono" style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 600, letterSpacing: '0.08em' }}>
+                WEEK {week} / {phase.weeks}
+              </div>
+              <button
+                onClick={() => { setWeek(w => Math.min(phase.weeks, w + 1)); setDayId(null); }}
+                disabled={week >= phase.weeks}
+                style={{
+                  all: 'unset', cursor: week < phase.weeks ? 'pointer' : 'default',
+                  opacity: week >= phase.weeks ? 0.3 : 1,
+                  width: 34, height: 34, borderRadius: 8,
+                  background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+                  display: 'grid', placeItems: 'center', color: 'var(--text)',
+                }}>
+                <IconChevronRight size={16}/>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 4. Day */}
+        {phase && (
+          <div>
+            <div className="label" style={{ marginBottom: 8 }}>
+              // SESSION{loadingDays ? ' · LOADING…' : days.length ? ` · ${days.length} AVAILABLE` : ' · NONE BUILT'}
+            </div>
+            {loadingDays ? (
+              <div style={{ color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, padding: '8px 0' }}>Loading…</div>
+            ) : days.length === 0 ? (
+              <div className="card" style={{ padding: 14, textAlign: 'center' }}>
+                <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.1em' }}>
+                  No sessions built for Week {week}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {days.map(d => (
+                  <button key={d.id} onClick={() => setDayId(d.id)}
+                    style={{
+                      all: 'unset', cursor: 'pointer',
+                      padding: '11px 14px', borderRadius: 10,
+                      background: dayId === d.id ? 'var(--accent-soft)' : 'var(--bg-2)',
+                      border: '1px solid ' + (dayId === d.id ? 'var(--accent)' : 'var(--line)'),
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}>
+                    <span style={{ fontFamily: 'JetBrains Mono', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                      {DAY_LABELS[d.day_of_week] || `Day ${d.day_of_week + 1}`}
+                    </span>
+                    {d.notes && (
+                      <span className="mono" style={{
+                        fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.04em',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160,
+                      }}>
+                        {d.notes.slice(0, 50)}
+                      </span>
+                    )}
+                    {dayId === d.id && <IconCheck size={14} style={{ color: 'var(--accent)', flexShrink: 0, marginLeft: 8 }}/>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 5. Date */}
+        {dayId && (
+          <div>
+            <div className="label" style={{ marginBottom: 8 }}>// SCHEDULED DATE</div>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+                borderRadius: 10, padding: '11px 12px',
+                color: 'var(--text)', outline: 'none',
+                fontFamily: 'JetBrains Mono', fontSize: 13,
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: '12px 18px 28px', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+        {saved ? (
+          <div style={{
+            textAlign: 'center', padding: '14px',
+            color: 'var(--accent)', fontFamily: 'JetBrains Mono', fontSize: 13,
+            fontWeight: 700, letterSpacing: '0.14em',
+          }}>
+            ✓ WORKOUT ASSIGNED
+          </div>
+        ) : (
+          <button
+            onClick={assign}
+            disabled={!dayId || !date || saving}
+            className="btn-primary"
+            style={{ width: '100%', opacity: dayId && date ? 1 : 0.4, pointerEvents: dayId && date ? 'auto' : 'none' }}>
+            {saving ? 'ASSIGNING…' : 'ASSIGN WORKOUT →'}
+          </button>
+        )}
+      </div>
+    </SheetShell>
   );
 }
 
@@ -653,31 +922,6 @@ function ProgrammeSheet({ p, onClose, onEdit }) {
             </div>
           ))}
         </div>
-
-        {p.clients > 0 && (
-          <>
-            <div className="label" style={{ margin: '20px 0 10px' }}>// SUBSCRIBED CLIENTS · {p.clients}</div>
-            <div style={{ display: 'grid', gap: 6 }}>
-              {COACH_CLIENTS.filter(c => c.programme === p.name).map(c => (
-                <div key={c.id} className="card" style={{
-                  padding: 10, display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: 10, alignItems: 'center',
-                }}>
-                  <Hex size={26} style={{
-                    background: c.accent, color: 'var(--on-accent)',
-                    fontFamily: 'Orbitron', fontSize: 9, fontWeight: 800,
-                  }}>{c.initials}</Hex>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-                    <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 1 }}>
-                      {c.phaseLabel.toUpperCase()}
-                    </div>
-                  </div>
-                  <IconChevronRight size={12} style={{ color: 'var(--text-3)' }}/>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
       </div>
 
       <div style={{ padding: '12px 18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>

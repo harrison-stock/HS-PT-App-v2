@@ -123,7 +123,7 @@ export default function App() {
   const showNav = !['log', 'notifications', 'sessionresults'].includes(screen);
 
   let ScreenEl;
-  if (screen === 'workouts')        ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId}/>;
+  if (screen === 'workouts')        ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId} userId={session.user.id}/>;
   else if (screen === 'log')        ScreenEl = <ActiveLog go={navigate}/>;
   else if (screen === 'progress')   ScreenEl = <Progress go={navigate}/>;
   else if (screen === 'resources')  ScreenEl = <Resources go={navigate}/>;
@@ -147,7 +147,7 @@ export default function App() {
       onLogout={() => supabase.auth.signOut()}
     />
   );
-  else ScreenEl = <Dashboard go={navigate} user={user}/>;
+  else ScreenEl = <Dashboard go={navigate} user={user} userId={session.user.id}/>;
 
   return (
     <div data-role={isTrainer ? 'trainer' : 'client'} style={{
