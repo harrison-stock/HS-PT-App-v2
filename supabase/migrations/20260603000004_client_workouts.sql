@@ -39,7 +39,7 @@ create policy "programme_days: client read via assignment"
   using (
     exists (
       select 1 from public.client_workouts cw
-      where cw.day_id = id and cw.client_id = auth.uid()
+      where cw.day_id = programme_days.id and cw.client_id = auth.uid()
     )
   );
 
@@ -49,7 +49,7 @@ create policy "workout_sections: client read via assignment"
   using (
     exists (
       select 1 from public.client_workouts cw
-      where cw.day_id = day_id and cw.client_id = auth.uid()
+      where cw.day_id = workout_sections.day_id and cw.client_id = auth.uid()
     )
   );
 
@@ -83,7 +83,7 @@ create policy "programme_phases: client read via assignment"
     exists (
       select 1 from public.programme_days pd
       join public.client_workouts cw on cw.day_id = pd.id
-      where pd.phase_id = id and cw.client_id = auth.uid()
+      where pd.phase_id = programme_phases.id and cw.client_id = auth.uid()
     )
   );
 
@@ -95,6 +95,6 @@ create policy "programmes: client read via assignment"
       select 1 from public.programme_phases ph
       join public.programme_days pd on pd.phase_id = ph.id
       join public.client_workouts cw on cw.day_id = pd.id
-      where ph.programme_id = id and cw.client_id = auth.uid()
+      where ph.programme_id = programmes.id and cw.client_id = auth.uid()
     )
   );
