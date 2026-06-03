@@ -37,45 +37,35 @@ export function Coach({ go, trainerId }) {
 
   const fetchClients = async () => {
     setLoadingClients(true);
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, name')
-      .eq('trainer_id', trainerId)
-      .eq('role', 'client');
-    if (data) setClients(data.map(shapeClient));
+    const [{ data: profiles }, { data: invites }] = await Promise.all([
+      supabase.from('profiles').select('id, name').eq('trainer_id', trainerId).eq('role', 'client'),
+      supabase.from('invites').select('id, client_name, client_email, code').eq('trainer_id', trainerId).is('claimed_by', null),
+    ]);
+    const real    = (profiles || []).map(shapeClient);
+    const pending = (invites  || []).map(inv => shapePendingClient(inv, trainerId));
+    setClients([...real, ...pending]);
     setLoadingClients(false);
   };
 
-  const newProgramme = async () => {
-    const { data: prog } = await supabase
-      .from('programmes')
-      .insert({ trainer_id: trainerId, name: 'New Programme', tag: 'STRENGTH' })
-      .select()
-      .single();
-    if (!prog) return;
-    const { data: phase } = await supabase
-      .from('programme_phases')
-      .insert({ programme_id: prog.id, phase_index: 0, name: 'Phase 1', focus: 'Foundation', weeks: 4 })
-      .select()
-      .single();
-    if (!phase) return;
+  const newProgramme = () => {
     setBuilderOpenRoadmap(true);
     setBuilderProgramme({
-      id: prog.id, name: prog.name, tag: prog.tag,
-      weeks: phase.weeks, phases: 1, clients: 0,
-      lastEdited: 'just now',
-      phaseList: [{ id: phase.id, name: phase.name, focus: phase.focus, weeks: phase.weeks }],
+      id: null,
+      name: 'New Programme', tag: 'STRENGTH',
+      weeks: 4, phases: 1, clients: 0,
+      lastEdited: 'new',
+      phaseList: [{ id: null, name: 'Phase 1', focus: 'Foundation', weeks: 4 }],
     });
   };
 
   const openBuilder = (prog) => { setProgrammeId(null); setBuilderOpenRoadmap(false); setBuilderProgramme(prog); };
   const closeBuilder = () => { setBuilderProgramme(null); fetchProgrammes(); };
 
-  const programme = programmes.find(p => p.id === programmeId);
+  const programme    = programmes.find(p => p.id === programmeId);
   const activeClient = clients.find(c => c.id === clientId);
 
   if (builderProgramme) {
-    return <ProgrammeBuilder programme={builderProgramme} onClose={closeBuilder} openRoadmap={builderOpenRoadmap}/>;
+    return <ProgrammeBuilder programme={builderProgramme} onClose={closeBuilder} openRoadmap={builderOpenRoadmap} trainerId={trainerId}/>;
   }
 
   const tabs = [
@@ -101,13 +91,16 @@ export function Coach({ go, trainerId }) {
       {tab === 'schedule'   && <ScheduleTab/>}
       {tab === 'inbox'      && <InboxTab/>}
 
-      {activeClient && (
+      {activeClient && !activeClient.pending && (
         <ClientSheet
           c={activeClient}
           trainerId={trainerId}
           programmes={programmes}
           onClose={() => setClientId(null)}
         />
+      )}
+      {activeClient && activeClient.pending && (
+        <PendingClientSheet c={activeClient} onClose={() => setClientId(null)}/>
       )}
       {programme && (
         <ProgrammeSheet p={programme}
@@ -119,6 +112,7 @@ export function Coach({ go, trainerId }) {
         <InviteSheet
           trainerId={trainerId}
           onClose={() => setInviteOpen(false)}
+          onCreated={fetchClients}
         />
       )}
     </div>
@@ -155,6 +149,23 @@ function shapeClient(p) {
     prsThisWeek: 0,
     sessionsThisWeek: 0,
     sessionsTarget: 3,
+  };
+}
+
+function shapePendingClient(inv, trainerId) {
+  const name = inv.client_name || 'Invited Client';
+  const parts = name.trim().split(/\s+/);
+  const initials = parts.map(w => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
+  const accent = CLIENT_ACCENTS[name.charCodeAt(0) % CLIENT_ACCENTS.length];
+  const inviteUrl = `${window.location.origin}?invite=${inv.code}&tid=${trainerId}&name=${encodeURIComponent(name)}`;
+  return {
+    id: inv.id, name, initials, accent, inviteUrl,
+    email: inv.client_email,
+    pending: true,
+    status: 'invited',
+    phaseLabel: 'Invite pending',
+    lastSeen: '—',
+    streak: 0, prsThisWeek: 0, sessionsThisWeek: 0, sessionsTarget: 3,
   };
 }
 
@@ -281,7 +292,7 @@ function ClientsTab({ clients, loading, onPick, onInvite }) {
           padding: '4px 8px', borderRadius: 6,
           background: 'var(--accent-soft)', color: 'var(--accent)',
           fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.1em', fontWeight: 600,
-        }}>+ INVITE</button>
+        }}>+ NEW CLIENT</button>
       </div>
 
       {loading ? (
@@ -310,7 +321,8 @@ function ClientsTab({ clients, loading, onPick, onInvite }) {
 }
 
 function ClientRow({ c, onPick }) {
-  const statusColor = c.status === 'needs-attention' ? 'var(--c-coral)'
+  const statusColor = c.status === 'invited'         ? 'var(--c-amber)'
+                    : c.status === 'needs-attention' ? 'var(--c-coral)'
                     : c.status === 'inactive'        ? 'var(--text-3)'
                     : c.status === 'new'             ? 'var(--c-amber)'
                     :                                  'var(--accent)';
@@ -319,6 +331,7 @@ function ClientRow({ c, onPick }) {
       <div className="card" style={{
         padding: 12, display: 'grid', gridTemplateColumns: '44px 1fr auto', gap: 12,
         alignItems: 'center', borderLeft: `2px solid ${statusColor}`,
+        opacity: c.pending ? 0.85 : 1,
       }}>
         <Hex size={40} style={{
           background: c.accent, color: 'var(--on-accent)',
@@ -330,13 +343,18 @@ function ClientRow({ c, onPick }) {
             <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {c.name}
             </span>
+            {c.pending && (
+              <span className="mono" style={{ fontSize: 8, color: 'var(--c-amber)', letterSpacing: '0.1em', fontWeight: 700, flexShrink: 0 }}>PENDING</span>
+            )}
           </div>
           <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {c.phaseLabel.toUpperCase()}
+            {c.pending ? (c.email || 'INVITE NOT YET ACCEPTED') : c.phaseLabel.toUpperCase()}
           </div>
-          <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 4 }}>
-            LAST SEEN: {c.lastSeen.toUpperCase()}
-          </div>
+          {!c.pending && (
+            <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 4 }}>
+              LAST SEEN: {c.lastSeen.toUpperCase()}
+            </div>
+          )}
         </div>
 
         <IconChevronRight size={16} style={{ color: 'var(--text-3)' }}/>
@@ -884,8 +902,52 @@ function AssignSheet({ clientId, clientName, trainerId, programmes, onClose }) {
   );
 }
 
+// ── PENDING CLIENT SHEET ─────────────────────────────────────────
+function PendingClientSheet({ c, onClose }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(c.inviteUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <SheetShell onClose={onClose}>
+      <div style={{ padding: '0 18px 14px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Hex size={54} style={{ background: c.accent, color: 'var(--on-accent)', fontFamily: 'Orbitron', fontSize: 16, fontWeight: 800 }}>{c.initials}</Hex>
+          <div>
+            <div className="h-bold" style={{ fontSize: 18 }}>{c.name.toUpperCase()}</div>
+            <div className="mono" style={{ fontSize: 10, color: 'var(--c-amber)', letterSpacing: '0.1em', fontWeight: 700, marginTop: 4 }}>
+              ◎ INVITE PENDING
+            </div>
+            {c.email && (
+              <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 3 }}>{c.email}</div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="scroller" style={{ flex: 1, padding: '16px 18px', minHeight: 0, display: 'grid', gap: 16, alignContent: 'start' }}>
+        <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6 }}>
+          This client hasn't signed up yet. Send them the link below — when they create their account they'll be connected to you automatically.
+        </div>
+        <div>
+          <div className="label" style={{ marginBottom: 7 }}>// INVITE LINK</div>
+          <div style={{
+            padding: '10px 12px', background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+            borderRadius: 10, wordBreak: 'break-all',
+            fontFamily: 'JetBrains Mono', fontSize: 10, color: 'var(--text-2)', lineHeight: 1.7,
+          }}>{c.inviteUrl}</div>
+        </div>
+        <button onClick={copy} className={copied ? 'btn-primary' : 'btn-ghost'} style={{ width: '100%' }}>
+          {copied ? '✓ COPIED' : '⎘ COPY INVITE LINK'}
+        </button>
+      </div>
+    </SheetShell>
+  );
+}
+
 // ── INVITE SHEET ────────────────────────────────────────────────
-function InviteSheet({ trainerId, onClose }) {
+function InviteSheet({ trainerId, onClose, onCreated }) {
   const [clientName,  setClientName]  = React.useState('');
   const [clientEmail, setClientEmail] = React.useState('');
   const [saving,      setSaving]      = React.useState(false);
@@ -906,6 +968,7 @@ function InviteSheet({ trainerId, onClose }) {
     if (err || !invite) { setError(err?.message || 'Could not create invite'); return; }
     const url = `${window.location.origin}?invite=${invite.code}&tid=${trainerId}&name=${encodeURIComponent(clientName.trim())}`;
     setInviteUrl(url);
+    onCreated?.();
   };
 
   const copy = () => {

@@ -10,7 +10,7 @@ const TAG_COLORS = {
   ENDURANCE: 'var(--accent-2)', HYBRID: 'var(--c-blue)', SPORT: 'var(--c-pink)',
 };
 
-export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
+export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trainerId }) {
   const [prog, setProg]             = React.useState(programme);
   const [roadmapMode, setRoadmapMode] = React.useState(openRoadmap);
   const [phaseIdx, setPhaseIdx]     = React.useState(0);
@@ -169,7 +169,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
 
   // ── Render: roadmap ───────────────────────────────────────────
   if (roadmapMode) {
-    return <RoadmapPanel prog={prog} onSave={handleRoadmapSave} onBack={handleRoadmapBack}/>;
+    return <RoadmapPanel prog={prog} onSave={handleRoadmapSave} onBack={handleRoadmapBack} trainerId={trainerId}/>;
   }
 
   const saveLabel = saving ? 'SAVING…' : dirty ? 'SAVE' : 'SAVED';
@@ -316,7 +316,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false }) {
 }
 
 // ── ROADMAP PANEL ────────────────────────────────────────────────
-function RoadmapPanel({ prog, onSave, onBack }) {
+function RoadmapPanel({ prog, onSave, onBack, trainerId }) {
   const [name, setName]         = React.useState(prog.name);
   const [tag, setTag]           = React.useState(prog.tag || 'STRENGTH');
   const [phases, setPhases]     = React.useState(
@@ -326,6 +326,7 @@ function RoadmapPanel({ prog, onSave, onBack }) {
   );
   const [deletedIds, setDeletedIds] = React.useState([]);
   const [saving, setSaving]     = React.useState(false);
+  const [saveError, setSaveError] = React.useState(null);
 
   const updPhase = (i, patch) => setPhases(ps => ps.map((p, j) => j === i ? { ...p, ...patch } : p));
   const addPhase = () => setPhases(ps => [...ps, { id: null, name: `Phase ${ps.length + 1}`, focus: 'Build', weeks: 4 }]);
@@ -338,8 +339,25 @@ function RoadmapPanel({ prog, onSave, onBack }) {
   const saveRoadmap = async () => {
     if (!name.trim() || phases.length === 0) return;
     setSaving(true);
+    setSaveError(null);
 
-    await supabase.from('programmes').update({ name: name.trim(), tag }).eq('id', prog.id);
+    let progId = prog.id;
+
+    if (!progId) {
+      const { data: newProg, error: err } = await supabase
+        .from('programmes')
+        .insert({ trainer_id: trainerId, name: name.trim(), tag })
+        .select('id').single();
+      if (!newProg) {
+        setSaving(false);
+        setSaveError(err?.message || 'Could not create programme — are you logged in as a trainer?');
+        return;
+      }
+      progId = newProg.id;
+    } else {
+      await supabase.from('programmes').update({ name: name.trim(), tag }).eq('id', progId);
+    }
+
     for (const id of deletedIds) await supabase.from('programme_phases').delete().eq('id', id);
 
     const newPhaseList = [];
@@ -350,7 +368,7 @@ function RoadmapPanel({ prog, onSave, onBack }) {
         newPhaseList.push({ id: ph.id, name: ph.name, focus: ph.focus, weeks: ph.weeks });
       } else {
         const { data } = await supabase.from('programme_phases')
-          .insert({ programme_id: prog.id, phase_index: i, name: ph.name, focus: ph.focus, weeks: ph.weeks })
+          .insert({ programme_id: progId, phase_index: i, name: ph.name, focus: ph.focus, weeks: ph.weeks })
           .select('id').single();
         newPhaseList.push({ id: data?.id || null, name: ph.name, focus: ph.focus, weeks: ph.weeks });
       }
@@ -358,7 +376,7 @@ function RoadmapPanel({ prog, onSave, onBack }) {
 
     setSaving(false);
     const totalWeeks = newPhaseList.reduce((s, p) => s + p.weeks, 0);
-    onSave({ ...prog, name: name.trim(), tag, phaseList: newPhaseList, weeks: totalWeeks, phases: newPhaseList.length });
+    onSave({ ...prog, id: progId, name: name.trim(), tag, phaseList: newPhaseList, weeks: totalWeeks, phases: newPhaseList.length });
   };
 
   const totalWeeks = phases.reduce((s, p) => s + (p.weeks || 0), 0);
@@ -388,6 +406,14 @@ function RoadmapPanel({ prog, onSave, onBack }) {
       </div>
 
       <div className="scroller" style={{ flex: 1, padding: '16px 14px 36px', minHeight: 0 }}>
+        {saveError && (
+          <div className="mono" style={{
+            marginBottom: 14, padding: '10px 12px', borderRadius: 8, fontSize: 10, lineHeight: 1.5,
+            background: 'color-mix(in srgb, var(--c-coral) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--c-coral) 35%, transparent)',
+            color: 'var(--c-coral)', letterSpacing: '0.04em',
+          }}>✕ {saveError}</div>
+        )}
         {/* Name */}
         <div style={{ marginBottom: 18 }}>
           <div className="label" style={{ marginBottom: 7 }}>// PROGRAMME NAME</div>
