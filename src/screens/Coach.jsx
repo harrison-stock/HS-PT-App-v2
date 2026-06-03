@@ -1,58 +1,117 @@
 import React from 'react'
-import { COACH_CLIENTS, COACH_PROGRAMMES, COACH_INBOX, COACH_KPIS, COACH_PROFILE, COACH_SCHEDULE } from '../data/index'
-import { Hex, HexBackButton, HexProgress } from '../components/hex'
+import { supabase } from '../lib/supabase'
+import { COACH_CLIENTS, COACH_INBOX, COACH_KPIS, COACH_SCHEDULE } from '../data/index'
+import { Hex, HexBackButton } from '../components/hex'
 import { IconBell, IconBolt, IconCalendar, IconChevronRight, IconMore, IconUser } from '../components/icons'
 import { ProgrammeBuilder } from './ProgrammeBuilder'
 
-// Coach — PT-side hub. Manage clients, programmes, schedule, inbox.
-// Inspired by Everfit's coach experience but mobile-native.
-export function Coach({ go }) {
-  const [tab, setTab] = React.useState('clients');
-  const [clientId, setClientId]     = React.useState(null);
-  const [programmeId, setProgrammeId] = React.useState(null);
+export function Coach({ go, trainerId }) {
+  const [tab, setTab]                       = React.useState('clients');
+  const [clientId, setClientId]             = React.useState(null);
+  const [programmeId, setProgrammeId]       = React.useState(null);
   const [builderProgramme, setBuilderProgramme] = React.useState(null);
+  const [programmes, setProgrammes]         = React.useState([]);
+  const [loadingProgs, setLoadingProgs]     = React.useState(true);
 
-  const client    = COACH_CLIENTS.find(c => c.id === clientId);
-  const programme = COACH_PROGRAMMES.find(p => p.id === programmeId);
+  React.useEffect(() => { fetchProgrammes(); }, []);
 
-  // Full-screen builder overrides the whole Coach surface
+  const fetchProgrammes = async () => {
+    setLoadingProgs(true);
+    const { data } = await supabase
+      .from('programmes')
+      .select('*, programme_phases(*)')
+      .order('updated_at', { ascending: false });
+    if (data) setProgrammes(data.map(shapeProgramme));
+    setLoadingProgs(false);
+  };
+
+  const newProgramme = async () => {
+    const { data: prog } = await supabase
+      .from('programmes')
+      .insert({ trainer_id: trainerId, name: 'New Programme', tag: 'STRENGTH' })
+      .select()
+      .single();
+    if (!prog) return;
+    const { data: phase } = await supabase
+      .from('programme_phases')
+      .insert({ programme_id: prog.id, phase_index: 0, name: 'Phase 1', focus: 'Foundation', weeks: 4 })
+      .select()
+      .single();
+    if (!phase) return;
+    setBuilderProgramme({
+      id: prog.id, name: prog.name, tag: prog.tag,
+      weeks: phase.weeks, phases: 1, clients: 0,
+      lastEdited: 'just now',
+      phaseList: [{ id: phase.id, name: phase.name, focus: phase.focus, weeks: phase.weeks }],
+    });
+  };
+
+  const openBuilder = (prog) => { setProgrammeId(null); setBuilderProgramme(prog); };
+  const closeBuilder = () => { setBuilderProgramme(null); fetchProgrammes(); };
+
+  const programme = programmes.find(p => p.id === programmeId);
+
   if (builderProgramme) {
-    return <ProgrammeBuilder programme={builderProgramme} onClose={() => setBuilderProgramme(null)}/>;
+    return <ProgrammeBuilder programme={builderProgramme} onClose={closeBuilder}/>;
   }
 
+  const tabs = [
+    { id: 'clients',    label: 'Clients',    count: COACH_CLIENTS.length },
+    { id: 'programmes', label: 'Programmes', count: loadingProgs ? null : programmes.length },
+    { id: 'schedule',   label: 'Today',      count: null },
+    { id: 'inbox',      label: 'Inbox',      count: COACH_INBOX.filter(m => m.unread).length || null },
+  ];
+
   return (
-    <div className="scroller" style={{ padding: '0 16px 110px', paddingTop: 64 }}>
+    <div className="scroller coach-wrap">
       <CoachHeader/>
       <KPIRow/>
 
-      {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 4, marginTop: 16, marginBottom: 14 }}>
-        {COACH_TABS.map(t => (
-          <CTab key={t.id} active={tab === t.id} onClick={() => setTab(t.id)} label={t.label} count={t.count?.()} />
+        {tabs.map(t => (
+          <CTab key={t.id} active={tab === t.id} onClick={() => setTab(t.id)} label={t.label} count={t.count}/>
         ))}
       </div>
 
       {tab === 'clients'    && <ClientsTab onPick={setClientId}/>}
-      {tab === 'programmes' && <ProgrammesTab onPick={setProgrammeId}/>}
+      {tab === 'programmes' && <ProgrammesTab programmes={programmes} loading={loadingProgs} onPick={setProgrammeId} onNew={newProgramme}/>}
       {tab === 'schedule'   && <ScheduleTab/>}
       {tab === 'inbox'      && <InboxTab/>}
 
-      {client    && <ClientSheet c={client} onClose={() => setClientId(null)}/>}
-      {programme && <ProgrammeSheet p={programme}
-        onClose={() => setProgrammeId(null)}
-        onEdit={() => { setBuilderProgramme(programme); setProgrammeId(null); }}
-      />}
+      {clientId  && <ClientSheet c={COACH_CLIENTS.find(c => c.id === clientId)} onClose={() => setClientId(null)}/>}
+      {programme && (
+        <ProgrammeSheet p={programme}
+          onClose={() => setProgrammeId(null)}
+          onEdit={() => openBuilder(programme)}
+        />
+      )}
     </div>
   );
 }
 
-const COACH_TABS = [
-  { id: 'clients',    label: 'Clients',    count: () => COACH_CLIENTS.length },
-  { id: 'programmes', label: 'Programmes', count: () => COACH_PROGRAMMES.length },
-  { id: 'schedule',   label: 'Today' },
-  { id: 'inbox',      label: 'Inbox',      count: () => COACH_INBOX.filter(m => m.unread).length || null },
-];
+// ── DATA HELPERS ─────────────────────────────────────────────────
+function shapeProgramme(p) {
+  const phases = [...(p.programme_phases || [])].sort((a, b) => a.phase_index - b.phase_index);
+  return {
+    id: p.id, name: p.name, tag: p.tag,
+    weeks: phases.reduce((s, ph) => s + (ph.weeks || 0), 0),
+    phases: phases.length,
+    clients: 0,
+    lastEdited: relativeTime(p.updated_at),
+    phaseList: phases.map(ph => ({ id: ph.id, name: ph.name, focus: ph.focus, weeks: ph.weeks })),
+  };
+}
 
+function relativeTime(iso) {
+  if (!iso) return '—';
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// ── TAB BAR ──────────────────────────────────────────────────────
 function CTab({ active, onClick, label, count }) {
   return (
     <button onClick={onClick} style={{
@@ -81,13 +140,17 @@ function CTab({ active, onClick, label, count }) {
 
 // ── HEADER ──────────────────────────────────────────────────────
 function CoachHeader() {
-  const p = COACH_PROFILE;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
+  const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0 14px' }}>
         <div>
           <div className="label" style={{ marginBottom: 4 }}>// COACH HUB</div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'JetBrains Mono, monospace' }}>SUN · 24 MAY · 07:08</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'JetBrains Mono, monospace' }}>
+            {dateStr} · {timeStr}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="btn-ghost" style={{ padding: 8, position: 'relative' }}>
@@ -104,11 +167,11 @@ function CoachHeader() {
 
       <div style={{ marginBottom: 14 }}>
         <div className="h-bold" style={{ fontSize: 24, lineHeight: 1.1 }}>
-          GOOD MORNING,<br/>
-          <span style={{ color: 'var(--accent)' }} className="text-glow">COACH H.</span>
+          COACH HUB
         </div>
         <div style={{ color: 'var(--text-2)', fontSize: 13, marginTop: 6 }}>
-          <strong style={{ color: 'var(--accent)' }}>{p.clientsActive}</strong> active clients · <strong style={{ color: 'var(--c-amber)' }}>4 unread</strong> · <strong style={{ color: 'var(--c-coral)' }}>1 needs attention</strong>
+          <strong style={{ color: 'var(--accent)' }}>{COACH_CLIENTS.length}</strong> clients ·{' '}
+          <strong style={{ color: 'var(--c-amber)' }}>{COACH_INBOX.filter(m => m.unread).length} unread</strong>
         </div>
       </div>
     </>
@@ -122,7 +185,7 @@ function KPIRow() {
     { label: 'ACTIVE',   value: k.activeClients,  color: 'var(--accent)',  icon: <IconUser size={11}/> },
     { label: 'SESSIONS', value: k.sessionsToday,  color: 'var(--accent-2)',icon: <IconCalendar size={11}/> },
     { label: 'PRs · 7d', value: k.prsThisWeek,    color: 'var(--c-amber)', icon: <IconBolt size={11}/> },
-    { label: 'INBOX',    value: k.unreadMessages, color: 'var(--c-coral)', icon: <IconBell size={11}/>, badge: true },
+    { label: 'INBOX',    value: k.unreadMessages, color: 'var(--c-coral)', icon: <IconBell size={11}/> },
   ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
@@ -145,18 +208,17 @@ function ClientsTab({ onPick }) {
   const [q, setQ] = React.useState('');
   const filters = [
     { id: 'all',       label: 'All' },
-    { id: 'attention', label: 'Attention',  match: (c) => c.status === 'needs-attention' || c.status === 'inactive' },
-    { id: 'prs',       label: 'PR · 7d',    match: (c) => c.prsThisWeek > 0 },
-    { id: 'new',       label: 'New',        match: (c) => c.status === 'new' },
+    { id: 'attention', label: 'Attention', match: (c) => c.status === 'needs-attention' || c.status === 'inactive' },
+    { id: 'prs',       label: 'PR · 7d',   match: (c) => c.prsThisWeek > 0 },
+    { id: 'new',       label: 'New',       match: (c) => c.status === 'new' },
   ];
-  const active = filters.find(f => f.id === filter);
+  const active   = filters.find(f => f.id === filter);
   const filtered = COACH_CLIENTS
     .filter(c => !active.match || active.match(c))
     .filter(c => c.name.toLowerCase().includes(q.toLowerCase()));
 
   return (
     <>
-      {/* Search */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 10,
@@ -173,7 +235,6 @@ function ClientsTab({ onPick }) {
         }}>+ INVITE</button>
       </div>
 
-      {/* Filter chips */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
         {filters.map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{
@@ -188,7 +249,6 @@ function ClientsTab({ onPick }) {
         ))}
       </div>
 
-      {/* Client list */}
       <div style={{ display: 'grid', gap: 8 }}>
         {filtered.map(c => <ClientRow key={c.id} c={c} onPick={() => onPick(c.id)}/>)}
         {filtered.length === 0 && (
@@ -202,7 +262,6 @@ function ClientsTab({ onPick }) {
 }
 
 function ClientRow({ c, onPick }) {
-  const adherencePct = c.adherence.filter(Boolean).length / c.adherence.length;
   const statusColor = c.status === 'needs-attention' ? 'var(--c-coral)'
                     : c.status === 'inactive'        ? 'var(--text-3)'
                     : c.status === 'new'             ? 'var(--c-amber)'
@@ -210,19 +269,14 @@ function ClientRow({ c, onPick }) {
   return (
     <button onClick={onPick} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
       <div className="card" style={{
-        padding: 12, display: 'grid', gridTemplateColumns: '52px 1fr auto', gap: 12,
-        alignItems: 'center',
-        borderLeft: `2px solid ${statusColor}`,
+        padding: 12, display: 'grid', gridTemplateColumns: '44px 1fr auto', gap: 12,
+        alignItems: 'center', borderLeft: `2px solid ${statusColor}`,
       }}>
-        {/* Hex avatar with adherence ring */}
-        <HexProgress size={48} pct={adherencePct} accent={statusColor} strokeWidth={18} glow={c.status==='on-track'}>
-          <Hex size={36} style={{
-            background: c.accent, color: 'var(--on-accent)',
-            fontFamily: 'Orbitron', fontSize: 11, fontWeight: 800,
-          }}>{c.initials}</Hex>
-        </HexProgress>
+        <Hex size={40} style={{
+          background: c.accent, color: 'var(--on-accent)',
+          fontFamily: 'Orbitron', fontSize: 12, fontWeight: 800,
+        }}>{c.initials}</Hex>
 
-        {/* Identity + programme */}
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -238,19 +292,8 @@ function ClientRow({ c, onPick }) {
           <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {c.phaseLabel.toUpperCase()}
           </div>
-          {/* Adherence dots — last 7 days */}
-          <div style={{ display: 'flex', gap: 3, marginTop: 6, alignItems: 'center' }}>
-            {c.adherence.map((d, i) => (
-              <span key={i} style={{
-                width: 14, height: 4, borderRadius: 1,
-                background: d ? statusColor : 'var(--bg-3)',
-                opacity: i === 6 ? 1 : 0.85,
-                boxShadow: d ? `0 0 4px ${statusColor}` : 'none',
-              }}/>
-            ))}
-            <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginLeft: 6 }}>
-              {c.lastSeen.toUpperCase()}
-            </span>
+          <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 4 }}>
+            LAST SEEN: {c.lastSeen.toUpperCase()}
           </div>
         </div>
 
@@ -261,18 +304,34 @@ function ClientRow({ c, onPick }) {
 }
 
 // ── PROGRAMMES TAB ──────────────────────────────────────────────
-function ProgrammesTab({ onPick }) {
+function ProgrammesTab({ programmes, loading, onPick, onNew }) {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div className="label">// PROGRAMMES · {COACH_PROGRAMMES.length}</div>
-        <button className="btn-ghost" style={{ padding: '6px 10px', borderColor: 'var(--accent)', color: 'var(--accent)', fontSize: 10 }}>
+        <div className="label">// PROGRAMMES · {loading ? '…' : programmes.length}</div>
+        <button onClick={onNew} className="btn-ghost" style={{ padding: '6px 10px', borderColor: 'var(--accent)', color: 'var(--accent)', fontSize: 10 }}>
           + NEW PROGRAMME
         </button>
       </div>
-      <div style={{ display: 'grid', gap: 10 }}>
-        {COACH_PROGRAMMES.map(p => <ProgrammeCard key={p.id} p={p} onPick={() => onPick(p.id)}/>)}
-      </div>
+      {loading ? (
+        <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>
+          LOADING…
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10 }}>
+          {programmes.map(p => <ProgrammeCard key={p.id} p={p} onPick={() => onPick(p.id)}/>)}
+          {programmes.length === 0 && (
+            <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+              <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', marginBottom: 12 }}>
+                NO PROGRAMMES YET
+              </div>
+              <button onClick={onNew} className="btn-primary" style={{ fontSize: 11, padding: '10px 18px' }}>
+                + CREATE FIRST PROGRAMME
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -290,33 +349,33 @@ function ProgrammeCard({ p, onPick }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span className="chip" style={{ fontSize: 8, padding: '2px 6px', color: tagColor, borderColor: 'currentColor' }}>{p.tag}</span>
               <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.1em' }}>
-                {p.weeks} WK · {p.phases} PHASE{p.phases > 1 ? 'S' : ''}
+                {p.weeks} WK · {p.phases} PHASE{p.phases !== 1 ? 'S' : ''}
               </span>
             </div>
             <div style={{ fontSize: 16, fontWeight: 600 }}>{p.name}</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: -6 }}>
-            <span className="mono" style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.08em', fontWeight: 600 }}>
-              {p.clients} CLIENT{p.clients > 1 ? 'S' : ''}
+          {p.clients > 0 && (
+            <span className="mono" style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.08em', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              {p.clients} CLIENT{p.clients !== 1 ? 'S' : ''}
             </span>
-          </div>
+          )}
         </div>
 
-        {/* Phase strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${p.phaseList.length}, 1fr)`, gap: 4, marginBottom: 8 }}>
-          {p.phaseList.map((ph, i) => (
-            <div key={i} style={{
-              padding: '6px 8px', borderRadius: 6,
-              background: 'var(--bg-3)',
-              border: '1px solid var(--line)',
-            }}>
-              <div className="mono" style={{ fontSize: 8, color: tagColor, letterSpacing: '0.1em', fontWeight: 600 }}>P{i+1} · {ph.weeks}W</div>
-              <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {ph.name}
+        {p.phaseList.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${p.phaseList.length}, 1fr)`, gap: 4, marginBottom: 8 }}>
+            {p.phaseList.map((ph, i) => (
+              <div key={i} style={{
+                padding: '6px 8px', borderRadius: 6,
+                background: 'var(--bg-3)', border: '1px solid var(--line)',
+              }}>
+                <div className="mono" style={{ fontSize: 8, color: tagColor, letterSpacing: '0.1em', fontWeight: 600 }}>P{i+1} · {ph.weeks}W</div>
+                <div style={{ fontSize: 10, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ph.name}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.08em' }}>
@@ -366,7 +425,6 @@ function ScheduleRow({ s, last }) {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: 10, position: 'relative' }}>
-      {/* Time column with vertical rail */}
       <div style={{ textAlign: 'right', paddingRight: 8, position: 'relative' }}>
         <div className="mono" style={{ fontSize: 12, color: s.status === 'live' ? 'var(--c-coral)' : 'var(--text)', fontWeight: 600, letterSpacing: '0.04em' }}>
           {s.time}
@@ -374,12 +432,7 @@ function ScheduleRow({ s, last }) {
         <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2, letterSpacing: '0.08em' }}>
           {s.duration}M
         </div>
-        {/* rail */}
-        <div style={{
-          position: 'absolute', right: -1, top: 28, bottom: last ? 0 : -10,
-          width: 1, background: 'var(--line)',
-        }}/>
-        {/* dot */}
+        <div style={{ position: 'absolute', right: -1, top: 28, bottom: last ? 0 : -10, width: 1, background: 'var(--line)' }}/>
         <span style={{
           position: 'absolute', right: -4, top: 6,
           width: 7, height: 7, borderRadius: '50%',
@@ -389,7 +442,6 @@ function ScheduleRow({ s, last }) {
         }}/>
       </div>
 
-      {/* Session card */}
       <div className="card" style={{
         padding: 12,
         background: s.status === 'live' ? 'rgba(238,106,106,0.05)' : 'var(--bg-2)',
@@ -405,7 +457,6 @@ function ScheduleRow({ s, last }) {
             {statusMeta.label}
           </span>
         </div>
-
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           {client && (
             <Hex size={22} style={{
@@ -415,7 +466,6 @@ function ScheduleRow({ s, last }) {
           )}
           <span style={{ fontSize: 13, fontWeight: 600 }}>{s.client}</span>
         </div>
-
         <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.04em', lineHeight: 1.4 }}>
           {s.note}
         </div>
@@ -471,18 +521,15 @@ function InboxRow({ m }) {
 
 // ── CLIENT DETAIL SHEET ─────────────────────────────────────────
 function ClientSheet({ c, onClose }) {
-  const adherencePct = c.adherence.filter(Boolean).length / c.adherence.length;
+  if (!c) return null;
   return (
     <SheetShell onClose={onClose}>
-      {/* Top — avatar + name */}
       <div style={{ padding: '20px 18px 14px', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <HexProgress size={68} pct={adherencePct} accent="var(--accent)" strokeWidth={20}>
-            <Hex size={54} style={{
-              background: c.accent, color: 'var(--on-accent)',
-              fontFamily: 'Orbitron', fontSize: 16, fontWeight: 800,
-            }}>{c.initials}</Hex>
-          </HexProgress>
+          <Hex size={54} style={{
+            background: c.accent, color: 'var(--on-accent)',
+            fontFamily: 'Orbitron', fontSize: 16, fontWeight: 800,
+          }}>{c.initials}</Hex>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="h-bold" style={{ fontSize: 18 }}>{c.name.toUpperCase()}</div>
             <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 4 }}>
@@ -491,37 +538,14 @@ function ClientSheet({ c, onClose }) {
           </div>
         </div>
 
-        {/* KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 16 }}>
-          <SmallKpi label="ADHERE" value={`${Math.round(adherencePct*100)}%`} color="var(--accent)"/>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 16 }}>
           <SmallKpi label="STREAK" value={c.streak} unit="d" color="var(--c-amber)"/>
           <SmallKpi label="PRs · 7d" value={c.prsThisWeek} color="var(--accent-2)"/>
           <SmallKpi label="SESSIONS" value={`${c.sessionsThisWeek}/${c.sessionsTarget}`} color="var(--text-2)"/>
         </div>
       </div>
 
-      {/* Body */}
       <div className="scroller" style={{ flex: 1, padding: '14px 18px 18px', minHeight: 0 }}>
-        <div className="label" style={{ marginBottom: 8 }}>// LAST 7 DAYS</div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-          {c.adherence.map((d, i) => (
-            <div key={i} style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{
-                height: 36, borderRadius: 6,
-                background: d ? 'linear-gradient(180deg, var(--accent), var(--accent-2))' : 'var(--bg-3)',
-                border: '1px solid ' + (d ? 'var(--accent)' : 'var(--line)'),
-                boxShadow: d ? '0 0 calc(6px * var(--glow)) var(--accent-glow)' : 'none',
-                display: 'grid', placeItems: 'center',
-                color: d ? 'var(--on-accent)' : 'var(--text-3)',
-                fontFamily: 'JetBrains Mono', fontSize: 11, fontWeight: 700,
-              }}>{d ? '✓' : '—'}</div>
-              <div className="mono" style={{ fontSize: 8, color: i === 6 ? 'var(--accent)' : 'var(--text-3)', marginTop: 4, letterSpacing: '0.1em', fontWeight: 600 }}>
-                {['M','T','W','T','F','S','S'][i]}
-              </div>
-            </div>
-          ))}
-        </div>
-
         <div className="label" style={{ marginBottom: 8 }}>// CURRENT PROGRAMME</div>
         <div className="card" style={{ padding: 12, marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{c.programme}</div>
@@ -539,7 +563,6 @@ function ClientSheet({ c, onClose }) {
         </div>
       </div>
 
-      {/* Bottom CTA */}
       <div style={{ padding: '12px 18px 28px', borderTop: '1px solid var(--line)' }}>
         <button className="btn-primary" style={{ width: '100%' }}>OPEN FULL CLIENT FILE</button>
       </div>
@@ -595,14 +618,13 @@ function ProgrammeSheet({ p, onClose, onEdit }) {
             </div>
             <div className="h-bold" style={{ fontSize: 22, lineHeight: 1.1 }}>{p.name.toUpperCase()}</div>
             <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.08em', marginTop: 6 }}>
-              {p.weeks} WEEKS · {p.phases} PHASES · {p.clients} CLIENT{p.clients > 1 ? 'S' : ''}
+              {p.weeks} WEEKS · {p.phases} PHASE{p.phases !== 1 ? 'S' : ''} · {p.clients} CLIENT{p.clients !== 1 ? 'S' : ''}
             </div>
           </div>
           <span className="chip chip-accent" style={{ fontSize: 9 }}>{p.tag}</span>
         </div>
       </div>
 
-      {/* Body */}
       <div className="scroller" style={{ flex: 1, padding: '16px 18px 18px', minHeight: 0 }}>
         <div className="label" style={{ marginBottom: 10 }}>// PHASES</div>
         <div style={{ display: 'grid', gap: 8 }}>
@@ -611,8 +633,7 @@ function ProgrammeSheet({ p, onClose, onEdit }) {
               display: 'grid', gridTemplateColumns: '36px 1fr auto', gap: 12,
               alignItems: 'center', padding: '12px 14px',
               background: 'var(--bg-2)', border: '1px solid var(--line)',
-              borderRadius: 10,
-              borderLeft: '2px solid var(--accent)',
+              borderRadius: 10, borderLeft: '2px solid var(--accent)',
             }}>
               <div style={{
                 width: 30, height: 30, borderRadius: 8,
@@ -631,29 +652,32 @@ function ProgrammeSheet({ p, onClose, onEdit }) {
           ))}
         </div>
 
-        <div className="label" style={{ margin: '20px 0 10px' }}>// SUBSCRIBED CLIENTS · {p.clients}</div>
-        <div style={{ display: 'grid', gap: 6 }}>
-          {COACH_CLIENTS.filter(c => c.programme === p.name).map(c => (
-            <div key={c.id} className="card" style={{
-              padding: 10, display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: 10, alignItems: 'center',
-            }}>
-              <Hex size={26} style={{
-                background: c.accent, color: 'var(--on-accent)',
-                fontFamily: 'Orbitron', fontSize: 9, fontWeight: 800,
-              }}>{c.initials}</Hex>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-                <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 1 }}>
-                  {c.phaseLabel.toUpperCase()}
+        {p.clients > 0 && (
+          <>
+            <div className="label" style={{ margin: '20px 0 10px' }}>// SUBSCRIBED CLIENTS · {p.clients}</div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {COACH_CLIENTS.filter(c => c.programme === p.name).map(c => (
+                <div key={c.id} className="card" style={{
+                  padding: 10, display: 'grid', gridTemplateColumns: '32px 1fr auto', gap: 10, alignItems: 'center',
+                }}>
+                  <Hex size={26} style={{
+                    background: c.accent, color: 'var(--on-accent)',
+                    fontFamily: 'Orbitron', fontSize: 9, fontWeight: 800,
+                  }}>{c.initials}</Hex>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                    <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 1 }}>
+                      {c.phaseLabel.toUpperCase()}
+                    </div>
+                  </div>
+                  <IconChevronRight size={12} style={{ color: 'var(--text-3)' }}/>
                 </div>
-              </div>
-              <IconChevronRight size={12} style={{ color: 'var(--text-3)' }}/>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </div>
 
-      {/* Bottom CTA */}
       <div style={{ padding: '12px 18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
         <button className="btn-ghost" style={{ flex: 1 }}>DUPLICATE</button>
         <button className="btn-primary" style={{ flex: 1 }} onClick={onEdit}>EDIT PROGRAMME</button>
@@ -693,5 +717,3 @@ function SheetShell({ onClose, children }) {
     </div>
   );
 }
-
-Coach = Coach;

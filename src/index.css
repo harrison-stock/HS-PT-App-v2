@@ -108,6 +108,17 @@ body {
   position: relative;
   overflow-x: hidden;
 }
+
+/* Trainer desktop layout — remove mobile cap */
+body:has([data-role="trainer"]) {
+  max-width: none;
+}
+.coach-wrap {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 24px 110px;
+  padding-top: 64px;
+}
 #root {
   min-height: 100dvh;
   background: var(--bg-1);

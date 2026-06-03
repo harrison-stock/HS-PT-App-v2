@@ -1,38 +1,131 @@
 import React from 'react'
+import { supabase } from '../lib/supabase'
 import { HexBackButton, HexShape } from '../components/hex'
 import { IconChevronRight } from '../components/icons'
 
-// ProgrammeBuilder — coach-side workout designer.
-// Opened from Coach > Programmes > [Edit Programme].
-// Mobile-feasible: select Phase → Week → Day, then design exercises per section.
-//
-// Per-set editing: each exercise has an array `setsList`, where every set
-// has its own weight / reps / time / rest / intensity, plus a `kind` flag
-// (WARMUP | WORK | DROP) so a coach can prescribe lighter ramps before working sets.
+const IMG_FALLBACK = 'https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=200&q=70';
 
 export function ProgrammeBuilder({ programme, onClose }) {
   const [phaseIdx, setPhaseIdx] = React.useState(0);
   const [weekIdx, setWeekIdx]   = React.useState(0);
   const [dayIdx, setDayIdx]     = React.useState(0);
   const [dirty, setDirty]       = React.useState(false);
-  const [day, setDay]           = React.useState(() => seedDay());
-  // Which exercise is expanded
-  const [expandedExId, setExpandedExId] = React.useState('m1');
-  // Which set within the expanded exercise is expanded
+  const [saving, setSaving]     = React.useState(false);
+  const [day, setDay]           = React.useState(null);
+  const [dayLoading, setDayLoading] = React.useState(true);
+  const [expandedExId, setExpandedExId]   = React.useState(null);
   const [expandedSetId, setExpandedSetId] = React.useState(null);
 
   const phase = programme.phaseList[phaseIdx];
   const days  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const workoutDays = [0, 2, 4];
 
-  const move = (next) => {
-    next();
-    setDay(seedDay());
-    setExpandedExId(null);
-    setExpandedSetId(null);
+  // Load the selected day from DB whenever phase/week/day changes
+  React.useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setDayLoading(true);
+      setExpandedExId(null);
+      setExpandedSetId(null);
+
+      if (!phase?.id) {
+        if (!cancelled) { setDay(seedDay()); setDayLoading(false); }
+        return;
+      }
+
+      const { data: dayRow } = await supabase
+        .from('programme_days')
+        .select('id')
+        .eq('phase_id', phase.id)
+        .eq('week_index', weekIdx)
+        .eq('day_of_week', dayIdx)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (!dayRow) { setDay(null); setDayLoading(false); setDirty(false); return; }
+
+      const { data: sections } = await supabase
+        .from('workout_sections')
+        .select('*, section_exercises(*, exercise_sets(*))')
+        .eq('day_id', dayRow.id)
+        .order('sort_order');
+
+      if (cancelled) return;
+
+      setDay(sections ? dbToDay(sections) : null);
+      setDirty(false);
+      setDayLoading(false);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [phaseIdx, weekIdx, dayIdx]);
+
+  const move = (setter) => {
+    setter();
+    setDirty(false);
   };
 
-  // ── exercise-level edits
+  // ── Save current day to Supabase ──────────────────────────────
+  const saveDay = async () => {
+    if (!phase?.id || !day) return;
+    setSaving(true);
+
+    // Upsert the day row
+    const { data: dayRow } = await supabase
+      .from('programme_days')
+      .upsert(
+        { phase_id: phase.id, week_index: weekIdx, day_of_week: dayIdx },
+        { onConflict: 'phase_id,week_index,day_of_week' }
+      )
+      .select('id')
+      .single();
+
+    if (!dayRow) { setSaving(false); return; }
+
+    // Delete all sections (cascades to exercises + sets)
+    await supabase.from('workout_sections').delete().eq('day_id', dayRow.id);
+
+    // Re-insert everything
+    for (let sOrd = 0; sOrd < day.sections.length; sOrd++) {
+      const s = day.sections[sOrd];
+      const { data: sec } = await supabase
+        .from('workout_sections')
+        .insert({ day_id: dayRow.id, kind: s.kind, title: s.title, sort_order: sOrd })
+        .select('id')
+        .single();
+      if (!sec) continue;
+
+      for (let eOrd = 0; eOrd < s.items.length; eOrd++) {
+        const ex = s.items[eOrd];
+        const { data: exRow } = await supabase
+          .from('section_exercises')
+          .insert({ section_id: sec.id, name: ex.name, img_url: ex.img, timed: ex.timed, sort_order: eOrd })
+          .select('id')
+          .single();
+        if (!exRow) continue;
+
+        const sets = ex.setsList.map((st, i) => ({
+          exercise_id: exRow.id,
+          set_index: i,
+          kind: st.kind,
+          reps: st.reps,
+          weight_kg: st.weight,
+          rest_secs: st.rest,
+          time_secs: st.time,
+          intensity: st.intensity,
+        }));
+        await supabase.from('exercise_sets').insert(sets);
+      }
+    }
+
+    // Touch updated_at on the programme
+    await supabase.from('programmes').update({ updated_at: new Date().toISOString() }).eq('id', programme.id);
+
+    setSaving(false);
+    setDirty(false);
+  };
+
+  // ── exercise-level edits ──────────────────────────────────────
   function updateExercise(sIdx, eIdx, patch) {
     setDay(prev => mapDay(prev, sIdx, eIdx, ex => ({ ...ex, ...patch })));
     setDirty(true);
@@ -67,11 +160,9 @@ export function ProgrammeBuilder({ programme, onClose }) {
       sections: prev.sections.map((s, si) => si !== sIdx ? s : ({
         ...s,
         items: [...s.items, {
-          id, name: 'New Exercise', img: 'https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=200&q=70',
+          id, name: 'New Exercise', img: IMG_FALLBACK,
           timed: false,
-          setsList: [
-            mkSet('WORK', { reps: 10, weight: 0, rest: 60, intensity: 6 }),
-          ],
+          setsList: [ mkSet('WORK', { reps: 10, weight: 0, rest: 60, intensity: 6 }) ],
         }],
       })),
     }));
@@ -79,7 +170,7 @@ export function ProgrammeBuilder({ programme, onClose }) {
     setExpandedExId(id);
   }
 
-  // ── set-level edits
+  // ── set-level edits ──────────────────────────────────────────
   function updateSet(sIdx, eIdx, setIdx, patch) {
     setDay(prev => mapDay(prev, sIdx, eIdx, ex => ({
       ...ex,
@@ -91,12 +182,7 @@ export function ProgrammeBuilder({ programme, onClose }) {
     setDay(prev => mapDay(prev, sIdx, eIdx, ex => {
       const last = ex.setsList[ex.setsList.length - 1];
       const base = last ? { reps: last.reps, weight: last.weight, rest: last.rest, time: last.time, intensity: last.intensity } : { reps: 8, weight: 0, rest: 60, time: 60, intensity: 6 };
-      // Warmups default lighter
-      if (kind === 'WARMUP') {
-        base.weight = Math.max(0, Math.round(base.weight * 0.5 / 2.5) * 2.5);
-        base.intensity = 3;
-        base.rest = 45;
-      }
+      if (kind === 'WARMUP') { base.weight = Math.max(0, Math.round(base.weight * 0.5 / 2.5) * 2.5); base.intensity = 3; base.rest = 45; }
       return { ...ex, setsList: [...ex.setsList, mkSet(kind, base)] };
     }));
     setDirty(true);
@@ -119,7 +205,6 @@ export function ProgrammeBuilder({ programme, onClose }) {
     })));
     setDirty(true);
   }
-  // Copy a set's values to all sets after it
   function applyToAll(sIdx, eIdx, setIdx) {
     setDay(prev => mapDay(prev, sIdx, eIdx, ex => {
       const src = ex.setsList[setIdx];
@@ -132,6 +217,8 @@ export function ProgrammeBuilder({ programme, onClose }) {
     }));
     setDirty(true);
   }
+
+  const saveLabel = saving ? 'SAVING…' : dirty ? 'SAVE' : 'SAVED';
 
   return (
     <div style={{
@@ -155,15 +242,19 @@ export function ProgrammeBuilder({ programme, onClose }) {
               {programme.name}
             </div>
           </div>
-          <button style={{
-            all: 'unset', cursor: 'pointer',
-            padding: '8px 12px', borderRadius: 8,
-            background: dirty ? 'linear-gradient(135deg, var(--accent), var(--accent-2))' : 'var(--bg-2)',
-            border: '1px solid ' + (dirty ? 'transparent' : 'var(--line-strong)'),
-            color: dirty ? 'var(--on-accent)' : 'var(--text-3)',
-            fontFamily: 'JetBrains Mono', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-            boxShadow: dirty ? '0 0 calc(10px * var(--glow)) var(--accent-glow)' : 'none',
-          }}>SAVE</button>
+          <button
+            onClick={saveDay}
+            disabled={saving || !dirty}
+            style={{
+              all: 'unset', cursor: dirty && !saving ? 'pointer' : 'default',
+              padding: '8px 12px', borderRadius: 8,
+              background: dirty ? 'linear-gradient(135deg, var(--accent), var(--accent-2))' : 'var(--bg-2)',
+              border: '1px solid ' + (dirty ? 'transparent' : 'var(--line-strong)'),
+              color: dirty ? 'var(--on-accent)' : 'var(--text-3)',
+              fontFamily: 'JetBrains Mono', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+              boxShadow: dirty ? '0 0 calc(10px * var(--glow)) var(--accent-glow)' : 'none',
+              opacity: saving ? 0.7 : 1,
+            }}>{saveLabel}</button>
         </div>
       </div>
 
@@ -209,22 +300,17 @@ export function ProgrammeBuilder({ programme, onClose }) {
         <div className="label" style={{ marginBottom: 6 }}>// DAY</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
           {days.map((d, i) => {
-            const isWorkout = workoutDays.includes(i);
-            const isActive  = dayIdx === i;
+            const isActive = dayIdx === i;
             return (
               <button key={i} onClick={() => move(() => setDayIdx(i))} style={{
                 all: 'unset', cursor: 'pointer', textAlign: 'center',
                 padding: '6px 0', borderRadius: 6,
                 border: '1px solid ' + (isActive ? 'var(--accent)' : 'var(--line)'),
                 background: isActive ? 'var(--accent-soft)' : 'var(--bg-2)',
-                color: isActive ? 'var(--accent)' : isWorkout ? 'var(--text)' : 'var(--text-3)',
+                color: isActive ? 'var(--accent)' : 'var(--text-2)',
                 fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.1em', fontWeight: 600,
               }}>
                 {d.toUpperCase()}
-                <div style={{
-                  width: 4, height: 4, borderRadius: '50%', margin: '4px auto 0',
-                  background: isWorkout ? (isActive ? 'var(--accent)' : 'var(--c-amber)') : 'transparent',
-                }}/>
               </button>
             );
           })}
@@ -233,9 +319,14 @@ export function ProgrammeBuilder({ programme, onClose }) {
 
       {/* Body */}
       <div className="scroller" style={{ flex: 1, padding: '14px 14px 28px', minHeight: 0 }}>
-        {!workoutDays.includes(dayIdx)
-          ? <RestDay />
-          : day.sections.map((s, sIdx) => (
+        {dayLoading ? (
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>
+            LOADING…
+          </div>
+        ) : !day ? (
+          <RestDay onAdd={() => { setDay(seedDay()); setDirty(true); }}/>
+        ) : (
+          day.sections.map((s, sIdx) => (
             <Section key={s.kind} s={s} sIdx={sIdx}
               expandedExId={expandedExId}
               expandedSetId={expandedSetId}
@@ -252,21 +343,50 @@ export function ProgrammeBuilder({ programme, onClose }) {
               onApplyToAll={applyToAll}
             />
           ))
-        }
+        )}
       </div>
     </div>
   );
 }
 
+// ── DB TRANSFORM ─────────────────────────────────────────────────
+function dbToDay(sections) {
+  return {
+    sections: sections.map(s => ({
+      kind: s.kind,
+      title: s.title,
+      items: [...(s.section_exercises || [])]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map(ex => ({
+          id: ex.id,
+          name: ex.name,
+          img: ex.img_url || IMG_FALLBACK,
+          timed: ex.timed,
+          setsList: [...(ex.exercise_sets || [])]
+            .sort((a, b) => a.set_index - b.set_index)
+            .map(st => ({
+              id: 's' + st.id.slice(-8),
+              kind: st.kind,
+              reps: st.reps ?? 8,
+              weight: Number(st.weight_kg) || 0,
+              rest: st.rest_secs ?? 60,
+              time: st.time_secs ?? 60,
+              intensity: st.intensity ?? 6,
+            })),
+        })),
+    })),
+  };
+}
+
 // ── REST DAY PLACEHOLDER ─────────────────────────────────────────
-function RestDay() {
+function RestDay({ onAdd }) {
   return (
     <div className="card" style={{ padding: 24, textAlign: 'center' }}>
       <div className="h-bold" style={{ fontSize: 18, color: 'var(--text-2)', marginBottom: 6 }}>REST DAY</div>
       <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 16 }}>
-        No session scheduled. Toggle a workout day above to start editing.
+        No session scheduled for this day. Click below to add a workout.
       </div>
-      <button className="btn-ghost" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>
+      <button onClick={onAdd} className="btn-ghost" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>
         + ADD WORKOUT
       </button>
     </div>
@@ -316,9 +436,7 @@ function Section(props) {
       <button onClick={onAddEx} style={{
         all: 'unset', cursor: 'pointer', display: 'block', width: '100%', textAlign: 'center',
         marginTop: 6, padding: '8px 0',
-        background: 'transparent',
-        border: '1px dashed var(--line-strong)',
-        borderRadius: 8,
+        border: '1px dashed var(--line-strong)', borderRadius: 8,
         color: color,
         fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.14em', fontWeight: 600,
       }}>+ ADD EXERCISE</button>
@@ -332,10 +450,8 @@ function ExerciseEditor(props) {
           onUpdateEx, onDupEx, onDelEx,
           onUpdateSet, onAddSet, onDelSet, onDupSet, onApplyToAll } = props;
 
-  // Summary across sets — show range
   const workSets = e.setsList.filter(s => s.kind !== 'WARMUP');
-  const wcount   = workSets.length;
-  const summary  = wcount === 0
+  const summary  = workSets.length === 0
     ? `${e.setsList.length} warm-up`
     : `${e.setsList.length} sets · ${summarize(e)}`;
 
@@ -348,7 +464,6 @@ function ExerciseEditor(props) {
       overflow: 'hidden',
       boxShadow: expanded ? `0 0 calc(8px * var(--glow)) color-mix(in srgb, ${color} 30%, transparent)` : 'none',
     }}>
-      {/* Collapsed header */}
       <button onClick={onExpand} style={{
         all: 'unset', cursor: 'pointer', width: '100%',
         display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: 10,
@@ -387,7 +502,6 @@ function ExerciseEditor(props) {
 
       {expanded && (
         <div style={{ padding: '0 10px 12px', borderTop: '1px solid var(--line)' }}>
-          {/* Exercise-level toggles */}
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '10px 4px', borderBottom: '1px dashed var(--line)',
@@ -401,9 +515,7 @@ function ExerciseEditor(props) {
             <Toggle on={e.timed} onChange={(v) => onUpdateEx({ timed: v })}/>
           </div>
 
-          {/* Per-set table */}
           <div style={{ marginTop: 8 }}>
-            {/* Header row */}
             <div style={{
               display: 'grid', gridTemplateColumns: '28px 1fr 1fr 1fr 30px 18px', gap: 6,
               padding: '0 2px 6px',
@@ -430,18 +542,12 @@ function ExerciseEditor(props) {
               ))}
             </div>
 
-            {/* Add set actions */}
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button onClick={() => onAddSet('WARMUP')} style={addSetBtn('var(--c-amber)')}>
-                + WARM-UP
-              </button>
-              <button onClick={() => onAddSet('WORK')} style={addSetBtn(color)}>
-                + WORK SET
-              </button>
+              <button onClick={() => onAddSet('WARMUP')} style={addSetBtn('var(--c-amber)')}>+ WARM-UP</button>
+              <button onClick={() => onAddSet('WORK')}   style={addSetBtn(color)}>+ WORK SET</button>
             </div>
           </div>
 
-          {/* Exercise actions */}
           <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
             <button onClick={onDupEx} className="btn-ghost" style={{ flex: 1, padding: '8px 10px', fontSize: 10 }}>
               ⎘ DUPLICATE EX
@@ -458,26 +564,21 @@ function ExerciseEditor(props) {
 
 // ── SET ROW ──────────────────────────────────────────────────────
 function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate, onDelete, onDuplicate, onApplyToAll }) {
-  const isWarmup = st.kind === 'WARMUP';
-  // Work-set number (skip warmups in count)
+  const isWarmup    = st.kind === 'WARMUP';
   const setNumLabel = isWarmup ? 'W' : String(setIdx + 1).padStart(2, '0');
-  const accent = isWarmup ? 'var(--c-amber)' : color;
+  const accent      = isWarmup ? 'var(--c-amber)' : color;
 
   return (
     <div style={{
       background: expanded ? 'var(--bg-3)' : 'var(--bg-1)',
       border: '1px solid ' + (expanded ? accent : 'var(--line)'),
-      borderRadius: 8,
-      overflow: 'hidden',
+      borderRadius: 8, overflow: 'hidden',
     }}>
-      {/* Compact row */}
       <button onClick={onExpand} style={{
         all: 'unset', cursor: 'pointer', width: '100%',
         display: 'grid', gridTemplateColumns: '28px 1fr 1fr 1fr 30px 18px', gap: 6,
-        alignItems: 'center', padding: '8px 6px',
-        boxSizing: 'border-box',
+        alignItems: 'center', padding: '8px 6px', boxSizing: 'border-box',
       }}>
-        {/* Set number / WARMUP badge */}
         <span style={{
           width: 22, height: 22, borderRadius: 5,
           background: isWarmup ? 'rgba(243,158,31,0.15)' : 'rgba(255,255,255,0.04)',
@@ -487,24 +588,10 @@ function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate,
           display: 'grid', placeItems: 'center',
         }}>{setNumLabel}</span>
 
-        {/* Col 1 — time or weight */}
-        {timed ? (
-          <CellValue value={fmtSecs(st.time)}/>
-        ) : (
-          <CellValue value={st.weight ? `${st.weight}` : 'BW'} unit={st.weight ? 'kg' : null}/>
-        )}
-
-        {/* Col 2 — weight (in timed mode) or reps */}
-        {timed ? (
-          <CellValue value={st.weight ? `${st.weight}` : '—'} unit={st.weight ? 'kg' : null}/>
-        ) : (
-          <CellValue value={`× ${st.reps || 0}`}/>
-        )}
-
-        {/* Rest */}
+        {timed ? <CellValue value={fmtSecs(st.time)}/> : <CellValue value={st.weight ? `${st.weight}` : 'BW'} unit={st.weight ? 'kg' : null}/>}
+        {timed ? <CellValue value={st.weight ? `${st.weight}` : '—'} unit={st.weight ? 'kg' : null}/> : <CellValue value={`× ${st.reps || 0}`}/>}
         <CellValue value={fmtSecs(st.rest)}/>
 
-        {/* Intensity number with colored bg */}
         <span style={{
           width: 24, height: 22, borderRadius: 5, display: 'grid', placeItems: 'center',
           background: `color-mix(in srgb, ${intensityColor(st.intensity)} 18%, transparent)`,
@@ -513,29 +600,16 @@ function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate,
           border: `1px solid color-mix(in srgb, ${intensityColor(st.intensity)} 40%, transparent)`,
         }}>{st.intensity}</span>
 
-        {/* Expand chevron */}
-        <div style={{
-          color: 'var(--text-3)',
-          transform: expanded ? 'rotate(90deg)' : 'rotate(0)',
-          transition: 'transform .2s',
-          display: 'grid', placeItems: 'center',
-        }}>
+        <div style={{ color: 'var(--text-3)', transform: expanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform .2s', display: 'grid', placeItems: 'center' }}>
           <IconChevronRight size={12}/>
         </div>
       </button>
 
-      {/* Expanded set controls */}
       {expanded && (
         <div style={{ padding: '4px 8px 10px', borderTop: '1px dashed var(--line)' }}>
-          {/* Warmup toggle */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '8px 2px', marginBottom: 6,
-          }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 2px', marginBottom: 6 }}>
             <div>
-              <div className="mono" style={{ fontSize: 9, color: 'var(--c-amber)', letterSpacing: '0.1em', fontWeight: 700 }}>
-                WARM-UP SET
-              </div>
+              <div className="mono" style={{ fontSize: 9, color: 'var(--c-amber)', letterSpacing: '0.1em', fontWeight: 700 }}>WARM-UP SET</div>
               <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>
                 {isWarmup ? 'Excluded from working-set count' : 'Counts toward working sets'}
               </div>
@@ -543,7 +617,6 @@ function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate,
             <Toggle on={isWarmup} onChange={(v) => onUpdate({ kind: v ? 'WARMUP' : 'WORK' })}/>
           </div>
 
-          {/* Steppers */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             {timed
               ? <TimeStepper label="TIME" value={st.time || 60} onChange={(v) => onUpdate({ time: v })} accent={accent}/>
@@ -556,7 +629,6 @@ function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate,
             <TimeStepper label="REST" value={st.rest || 0} onChange={(v) => onUpdate({ rest: v })} accent={accent} stepSec={15}/>
           </div>
 
-          {/* Intensity hex pips */}
           <div style={{ marginTop: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
               <span className="mono" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-2)', fontWeight: 600 }}>
@@ -569,17 +641,10 @@ function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate,
             <IntensityPicker value={st.intensity} onChange={(v) => onUpdate({ intensity: v })}/>
           </div>
 
-          {/* Per-set actions */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginTop: 12 }}>
-            <button onClick={onApplyToAll} disabled={setIdx === total - 1} style={miniBtn({ disabled: setIdx === total - 1 })}>
-              ↓ APPLY BELOW
-            </button>
-            <button onClick={onDuplicate} style={miniBtn()}>
-              ⎘ DUPLICATE
-            </button>
-            <button onClick={onDelete} disabled={total <= 1} style={miniBtn({ danger: true, disabled: total <= 1 })}>
-              ✕ DELETE
-            </button>
+            <button onClick={onApplyToAll} disabled={setIdx === total - 1} style={miniBtn({ disabled: setIdx === total - 1 })}>↓ APPLY BELOW</button>
+            <button onClick={onDuplicate} style={miniBtn()}>⎘ DUPLICATE</button>
+            <button onClick={onDelete} disabled={total <= 1} style={miniBtn({ danger: true, disabled: total <= 1 })}>✕ DELETE</button>
           </div>
         </div>
       )}
@@ -606,13 +671,8 @@ function Stepper({ label, value, unit, min = 0, max = 999, step = 1, onChange, a
   const dec = () => onChange(Math.max(min, +(value - step).toFixed(2)));
   const inc = () => onChange(Math.min(max, +(value + step).toFixed(2)));
   return (
-    <div style={{
-      background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8,
-      padding: '6px 8px',
-    }}>
-      <div className="mono" style={{ fontSize: 8, color: accent, letterSpacing: '0.12em', fontWeight: 700, marginBottom: 3 }}>
-        {label}
-      </div>
+    <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 8px' }}>
+      <div className="mono" style={{ fontSize: 8, color: accent, letterSpacing: '0.12em', fontWeight: 700, marginBottom: 3 }}>{label}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 22px', gap: 4, alignItems: 'center' }}>
         <StepBtn onClick={dec}>−</StepBtn>
         <div style={{ textAlign: 'center', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 2 }}>
@@ -629,13 +689,8 @@ function TimeStepper({ label, value, onChange, accent = 'var(--accent)', stepSec
   const dec = () => onChange(Math.max(0, value - stepSec));
   const inc = () => onChange(Math.min(3600, value + stepSec));
   return (
-    <div style={{
-      background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8,
-      padding: '6px 8px',
-    }}>
-      <div className="mono" style={{ fontSize: 8, color: accent, letterSpacing: '0.12em', fontWeight: 700, marginBottom: 3 }}>
-        {label}
-      </div>
+    <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 8px' }}>
+      <div className="mono" style={{ fontSize: 8, color: accent, letterSpacing: '0.12em', fontWeight: 700, marginBottom: 3 }}>{label}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 22px', gap: 4, alignItems: 'center' }}>
         <StepBtn onClick={dec}>−</StepBtn>
         <div style={{ textAlign: 'center' }}>
@@ -653,10 +708,8 @@ function StepBtn({ children, onClick }) {
       all: 'unset', cursor: 'pointer',
       width: 22, height: 22, borderRadius: 5,
       background: 'var(--bg-1)', border: '1px solid var(--line-strong)',
-      color: 'var(--text)',
-      fontFamily: 'JetBrains Mono', fontSize: 13, fontWeight: 700,
-      display: 'grid', placeItems: 'center',
-      textAlign: 'center',
+      color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 13, fontWeight: 700,
+      display: 'grid', placeItems: 'center', textAlign: 'center',
     }}>{children}</button>
   );
 }
@@ -672,8 +725,7 @@ function Toggle({ on, onChange }) {
       transition: 'background .2s, border-color .2s',
     }}>
       <span style={{
-        position: 'absolute', top: 2,
-        left: on ? 20 : 2,
+        position: 'absolute', top: 2, left: on ? 20 : 2,
         width: 16, height: 16, borderRadius: '50%',
         background: on ? 'var(--on-accent)' : 'var(--text-3)',
         transition: 'left .2s',
@@ -690,20 +742,13 @@ function IntensityPicker({ value, onChange }) {
         const filled = n <= value;
         const fillColor = intensityColor(n);
         return (
-          <button key={n} onClick={() => onChange(n)} style={{
-            all: 'unset', cursor: 'pointer',
-            display: 'grid', placeItems: 'center',
-            position: 'relative', padding: 0,
-          }}>
+          <button key={n} onClick={() => onChange(n)} style={{ all: 'unset', cursor: 'pointer', display: 'grid', placeItems: 'center', position: 'relative', padding: 0 }}>
             <HexShape
               size={26}
               fill={filled ? fillColor : 'transparent'}
               stroke={filled ? fillColor : 'var(--line-strong)'}
               strokeWidth={filled ? 0 : 8}
-              style={{
-                filter: filled ? `drop-shadow(0 0 calc(4px * var(--glow)) ${fillColor})` : 'none',
-                transition: 'fill .15s',
-              }}
+              style={{ filter: filled ? `drop-shadow(0 0 calc(4px * var(--glow)) ${fillColor})` : 'none', transition: 'fill .15s' }}
             />
             <span style={{
               position: 'absolute',
@@ -719,23 +764,17 @@ function IntensityPicker({ value, onChange }) {
 
 // ── STYLES + HELPERS ─────────────────────────────────────────────
 function tableHeadStyle() {
-  return {
-    fontSize: 8, color: 'var(--text-3)', letterSpacing: '0.12em',
-    fontFamily: 'JetBrains Mono', fontWeight: 700, textAlign: 'center',
-  };
+  return { fontSize: 8, color: 'var(--text-3)', letterSpacing: '0.12em', fontFamily: 'JetBrains Mono', fontWeight: 700, textAlign: 'center' };
 }
-
 function addSetBtn(c) {
   return {
     all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center',
     padding: '7px 0', borderRadius: 7,
     background: `color-mix(in srgb, ${c} 10%, transparent)`,
     border: `1px dashed color-mix(in srgb, ${c} 45%, transparent)`,
-    color: c,
-    fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.14em', fontWeight: 700,
+    color: c, fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.14em', fontWeight: 700,
   };
 }
-
 function miniBtn({ danger = false, disabled = false } = {}) {
   return {
     all: 'unset', cursor: disabled ? 'not-allowed' : 'pointer',
@@ -781,7 +820,7 @@ function summarize(e) {
   }
   return `${w === '0' ? 'BW' : w + 'kg'} × ${reps}`;
 }
-// Always operate on raw numbers; pass a `format` fn to render the result.
+
 function uniqueRange(arr, format = String) {
   const nums = arr.filter(v => typeof v === 'number' && !isNaN(v));
   if (nums.length === 0) return '—';
@@ -805,11 +844,7 @@ function intensityColor(n) {
 }
 
 function intensityLabel(n) {
-  return n <= 2 ? 'WARM-UP'
-       : n <= 4 ? 'EASY'
-       : n <= 6 ? 'MODERATE'
-       : n <= 8 ? 'HARD'
-       :          'MAX EFFORT';
+  return n <= 2 ? 'WARM-UP' : n <= 4 ? 'EASY' : n <= 6 ? 'MODERATE' : n <= 8 ? 'HARD' : 'MAX EFFORT';
 }
 
 function sectionColor(kind) {
@@ -819,7 +854,6 @@ function sectionColor(kind) {
        :                           'var(--accent)';
 }
 
-// ── DEMO SEED ───────────────────────────────────────────────────
 function seedDay() {
   return {
     sections: [
@@ -879,5 +913,3 @@ function seedDay() {
     ],
   };
 }
-
-ProgrammeBuilder = ProgrammeBuilder;

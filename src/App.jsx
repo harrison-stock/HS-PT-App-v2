@@ -127,7 +127,7 @@ export default function App() {
   else if (screen === 'log')        ScreenEl = <ActiveLog go={navigate}/>;
   else if (screen === 'progress')   ScreenEl = <Progress go={navigate}/>;
   else if (screen === 'resources')  ScreenEl = <Resources go={navigate}/>;
-  else if (screen === 'coach')      ScreenEl = <Coach go={navigate}/>;
+  else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id}/>;
   else if (screen === 'notifications') ScreenEl = <Notifications go={navigate}/>;
   else if (screen === 'sessionresults') ScreenEl = (
     <SessionComplete exercises={ACTIVE_EXERCISES} sessionTime={2820} go={navigate} onClose={() => navigate('dashboard')}/>
@@ -150,7 +150,7 @@ export default function App() {
   else ScreenEl = <Dashboard go={navigate} user={user}/>;
 
   return (
-    <div style={{
+    <div data-role={isTrainer ? 'trainer' : 'client'} style={{
       width: '100%', minHeight: '100dvh',
       fontFamily: "'JetBrains Mono', ui-monospace, 'SF Mono', monospace",
       background: 'var(--bg-1)',
