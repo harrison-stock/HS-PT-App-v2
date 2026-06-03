@@ -173,6 +173,7 @@ export default function App() {
     <Profile
       go={navigate}
       user={user}
+      profile={profile}
       onSave={async (u) => {
         await supabase.from('profiles')
           .update({ name: u.name, date_of_birth: u.dob || null })
@@ -235,7 +236,7 @@ function BottomNav({ screen, go, isTrainer }) {
     { id: 'workouts',  label: 'TRAIN',    Icon: IconCalendar },
     { id: 'progress',  label: 'PROGRESS', Icon: IconChart },
     { id: 'resources', label: 'LIBRARY',  Icon: IconBook },
-    { id: 'profile',   label: 'PROFILE',  Icon: IconUser },
+    { id: 'profile',   label: 'SETTINGS', Icon: IconUser },
   ];
 
   return (

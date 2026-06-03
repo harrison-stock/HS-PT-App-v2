@@ -4,6 +4,7 @@ import { COACH_CLIENTS, COACH_INBOX, COACH_KPIS, COACH_SCHEDULE } from '../data/
 import { Hex, HexBackButton } from '../components/hex'
 import { IconBell, IconBolt, IconCalendar, IconCheck, IconChevronLeft, IconChevronRight, IconMore, IconUser } from '../components/icons'
 import { ProgrammeBuilder } from './ProgrammeBuilder'
+import { ClientDetail } from './ClientDetail'
 
 const CLIENT_ACCENTS = ['#46BBC0','#189CAA','#F39E1F','#EE6A6A','#3F84D9','#E0A5BB','#8086A3'];
 const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -213,7 +214,7 @@ export function Coach({ go, trainerId }) {
       {tab === 'inbox'      && <InboxTab/>}
 
       {activeClient && (
-        <ClientSheet
+        <ClientDetail
           c={activeClient}
           trainerId={trainerId}
           programmes={programmes}
