@@ -1,6 +1,8 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
-import { BODY_METRICS, MUSCLE_VOLUME, MUSCLE_LABELS, EXERCISE_HISTORY, EXERCISE_CATEGORIES } from '../data/index'
+import { loadMuscleVolume } from '../lib/muscleVolume'
+import { loadPhotoHistory, uploadProgressPhoto, deleteProgressPhoto } from '../lib/progressPhotos'
+import { MUSCLE_LABELS, EXERCISE_HISTORY, EXERCISE_CATEGORIES } from '../data/index'
 import { MUSCLE_BODY } from '../data/musclePaths'
 import { HexBackButton, Hex, HexShape } from '../components/hex'
 import { IconHeart, IconDumbbell, IconCamera2, IconChevronRight, IconPlus, IconTrophy, IconCheck, IconBand, IconFlame, IconLeaf } from '../components/icons'
@@ -100,7 +102,7 @@ export function Progress({ go, userId }) {
         <TabPill active={tab === 'photos'} onClick={() => setTab('photos')} icon={<IconCamera2 size={14} />} label="PHOTOS" />
       </div>
 
-      {tab === 'body' ? <BodyTab /> : tab === 'photos' ? <PhotosTab /> : <WeightTab range={range} userId={userId} />}
+      {tab === 'body' ? <BodyTab userId={userId} /> : tab === 'photos' ? <PhotosTab userId={userId} /> : <WeightTab range={range} userId={userId} />}
     </div>);
 
 }
@@ -124,40 +126,53 @@ function TabPill({ active, onClick, icon, label }) {
 }
 
 // ── PHOTOS TAB ────────────────────────────────────────────────────
-// Progress-photo submission (this week, 3 poses) + dated history.
+// Progress-photo submission (3 poses) + dated history, stored in the
+// private progress-photos bucket.
 const PHOTO_POSES = [
 { id: 'front', label: 'FRONT' },
 { id: 'side', label: 'SIDE' },
 { id: 'back', label: 'BACK' }];
 
-const PHOTO_HISTORY = [
-{ id: 'p1', date: '01/05/2026', weight: '78.4kg', shots: {
-    front: 'https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?w=300&q=70',
-    side: 'https://images.unsplash.com/photo-1532029837206-abbe2b7620e3?w=300&q=70',
-    back: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=300&q=70' } },
-{ id: 'p2', date: '17/04/2026', weight: '79.1kg', shots: {
-    front: 'https://images.unsplash.com/photo-1567598508481-65985588e295?w=300&q=70',
-    side: 'https://images.unsplash.com/photo-1534368786749-d63b7d4a3b2b?w=300&q=70',
-    back: 'https://images.unsplash.com/photo-1549476464-37392f717541?w=300&q=70' } },
-{ id: 'p3', date: '03/04/2026', weight: '80.2kg', shots: {
-    front: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=300&q=70',
-    side: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=300&q=70',
-    back: 'https://images.unsplash.com/photo-1540497077202-7c8a3999166f?w=300&q=70' } }];
+function fmtPhotoDate(iso) {
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
 
+function PhotosTab({ userId }) {
+  const [shots, setShots] = React.useState({ front: null, side: null, back: null }); // { file, preview }
+  const [history, setHistory] = React.useState(null);
+  const [uploading, setUploading] = React.useState(false);
+  const fileInputs = { front: React.useRef(null), side: React.useRef(null), back: React.useRef(null) };
 
-function PhotosTab() {
-  // Simulated capture state for "this week"
-  const [shots, setShots] = React.useState({ front: null, side: null, back: null });
-  const sampleFor = {
-    front: 'https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?w=300&q=70',
-    side: 'https://images.unsplash.com/photo-1532029837206-abbe2b7620e3?w=300&q=70',
-    back: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=300&q=70'
+  const reload = React.useCallback(() => {
+    if (!userId) { setHistory([]); return; }
+    loadPhotoHistory(userId).then(setHistory);
+  }, [userId]);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const onPickFile = (pose, e) => {
+    const file = e.target.files?.[0];
+    if (file) setShots((s) => ({ ...s, [pose]: { file, preview: URL.createObjectURL(file) } }));
+    e.target.value = '';
   };
+
   const taken = PHOTO_POSES.filter((p) => shots[p.id]).length;
-  const [history, setHistory] = React.useState(PHOTO_HISTORY);
-  const submit = () => {
-    setHistory((prev) => [{ id: 'new', date: '01/05/2026', weight: '77.9kg', shots: { ...shots } }, ...prev]);
+
+  const submit = async () => {
+    if (taken === 0 || uploading) return;
+    setUploading(true);
+    for (const pose of PHOTO_POSES) {
+      const s = shots[pose.id];
+      if (s) await uploadProgressPhoto(userId, pose.id, s.file);
+    }
     setShots({ front: null, side: null, back: null });
+    setUploading(false);
+    reload();
+  };
+
+  const removePhoto = async (row) => {
+    await deleteProgressPhoto(row);
+    reload();
   };
 
   return (
@@ -169,9 +184,14 @@ function PhotosTab() {
       <div className="card" style={{ padding: 12, marginBottom: 10 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           {PHOTO_POSES.map((pose) => {
-            const img = shots[pose.id];
+            const img = shots[pose.id]?.preview;
             return (
-              <button key={pose.id} onClick={() => setShots((s) => ({ ...s, [pose.id]: s[pose.id] ? null : sampleFor[pose.id] }))}
+              <React.Fragment key={pose.id}>
+                <input ref={fileInputs[pose.id]} type="file" accept="image/*" capture="environment"
+                  style={{ display: 'none' }} onChange={(e) => onPickFile(pose.id, e)} />
+                <button onClick={() => img
+                  ? setShots((s) => ({ ...s, [pose.id]: null }))
+                  : fileInputs[pose.id].current?.click()}
               style={{
                 all: 'unset', cursor: 'pointer', position: 'relative',
                 aspectRatio: '3/4', borderRadius: 10, overflow: 'hidden',
@@ -194,38 +214,58 @@ function PhotosTab() {
                     </Hex>
                   </span>
                 </>}
-              </button>);
+              </button>
+              </React.Fragment>);
           })}
         </div>
-        <button onClick={submit} disabled={taken === 0} className="btn-primary"
-        style={{ width: '100%', marginTop: 12, opacity: taken === 0 ? 0.45 : 1, pointerEvents: taken === 0 ? 'none' : 'auto' }}>
-          SUBMIT {taken} PHOTO{taken === 1 ? '' : 'S'}
+        <button onClick={submit} disabled={taken === 0 || uploading} className="btn-primary"
+        style={{ width: '100%', marginTop: 12, opacity: taken === 0 ? 0.45 : 1, pointerEvents: taken === 0 || uploading ? 'none' : 'auto' }}>
+          {uploading ? 'UPLOADING…' : `SUBMIT ${taken} PHOTO${taken === 1 ? '' : 'S'}`}
         </button>
         <div className="mono" style={{ fontSize: 9.5, color: 'var(--text-3)', letterSpacing: '0.05em', textAlign: 'center', marginTop: 8, lineHeight: 1.5 }}>Tap a pose to attach a photo. Please note that these images will only be shared with Harrison and can be removed at any time from the history below.
-
         </div>
       </div>
 
       {/* History */}
       <div className="label" style={{ margin: '18px 2px 8px' }}>// HISTORY</div>
+      {history === null && (
+        <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.12em' }}>LOADING…</div>
+        </div>
+      )}
+      {history?.length === 0 && (
+        <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', lineHeight: 1.6 }}>
+            NO PHOTOS YET — SUBMIT YOUR FIRST SET ABOVE
+          </div>
+        </div>
+      )}
       <div style={{ display: 'grid', gap: 10 }}>
-        {history.map((h) =>
-        <div key={h.id} className="card" style={{ padding: 12 }}>
+        {(history || []).map((h) =>
+        <div key={h.date} className="card" style={{ padding: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span className="mono" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text)' }}>{h.date}</span>
-            <span className="chip chip-accent" style={{ fontSize: 9 }}>{h.weight}</span>
+            <span className="mono" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text)' }}>{fmtPhotoDate(h.date)}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-            {PHOTO_POSES.map((pose) =>
+            {PHOTO_POSES.map((pose) => {
+              const row = h.shots[pose.id];
+              return (
             <div key={pose.id} style={{
               aspectRatio: '3/4', borderRadius: 8, overflow: 'hidden', position: 'relative',
-              background: h.shots[pose.id] ? `url('${h.shots[pose.id]}') center/cover` : 'var(--bg-3)',
+              background: row?.url ? `url('${row.url}') center/cover` : 'var(--bg-3)',
               border: '1px solid var(--line)'
             }}>
               <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.55))' }} />
               <span className="mono" style={{ position: 'absolute', bottom: 4, left: 5, fontSize: 8, color: '#fff', letterSpacing: '0.1em', fontWeight: 700 }}>{pose.label}</span>
-            </div>
-            )}
+              {row && (
+                <button onClick={() => removePhoto(row)} aria-label="Remove photo" style={{
+                  all: 'unset', cursor: 'pointer', position: 'absolute', top: 4, right: 4,
+                  width: 20, height: 20, borderRadius: 6, display: 'grid', placeItems: 'center',
+                  background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 11, lineHeight: 1,
+                }}>✕</button>
+              )}
+            </div>);
+            })}
           </div>
         </div>
         )}
@@ -235,17 +275,82 @@ function PhotosTab() {
 }
 
 // ── BODY TAB ──────────────────────────────────────────────────────
-function BodyTab() {
+// Real body measurements from the body_metrics table.
+const METRIC_DEFS = [
+  { key: 'weight',  col: 'weight_kg',    label: 'Weight',   unit: 'kg' },
+  { key: 'bodyfat', col: 'body_fat_pct', label: 'Body fat', unit: '%'  },
+  { key: 'waist',   col: 'waist_cm',     label: 'Waist',    unit: 'cm' },
+  { key: 'neck',    col: 'neck_cm',      label: 'Neck',     unit: 'cm' },
+  { key: 'chest',   col: 'chest_cm',     label: 'Chest',    unit: 'cm' },
+];
+
+// rows must be ascending by recorded_at
+function buildMetrics(rows) {
+  const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const out = {};
+  for (const def of METRIC_DEFS) {
+    const series = rows.
+    filter((r) => r[def.col] != null).
+    map((r) => ({ v: parseFloat(r[def.col]), date: r.recorded_at }));
+    if (!series.length) continue;
+    const value = series[series.length - 1].v;
+    const prior = [...series].reverse().find((p) => p.date <= cutoff) || series[0];
+    const delta = +(value - prior.v).toFixed(1);
+    const deltaPct = prior.v ? +(delta / prior.v * 100).toFixed(1) : 0;
+    out[def.key] = { ...def, value, delta, deltaPct, series, history: series.map((p) => p.v) };
+  }
+  return out;
+}
+
+function fmtMetricDate(iso) {
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+function BodyTab({ userId }) {
+  const [rows, setRows] = React.useState(null);
   const [selected, setSelected] = React.useState('weight');
   const [detail, setDetail] = React.useState(null);   // metric key for full-history drill
   const [logging, setLogging] = React.useState(false); // log-measurement sheet
-  const m = BODY_METRICS;
-  const sel = m[selected];
+
+  const reload = React.useCallback(() => {
+    if (!userId) { setRows([]); return; }
+    supabase.from('body_metrics').select('*').
+    eq('client_id', userId).
+    order('recorded_at', { ascending: true }).
+    then(({ data }) => setRows(data || []));
+  }, [userId]);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const m = React.useMemo(() => buildMetrics(rows || []), [rows]);
+  const keys = Object.keys(m);
+  const sel = m[selected] || m[keys[0]];
+
+  if (rows === null) return (
+    <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+      <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.12em' }}>LOADING…</div>
+    </div>
+  );
+
+  if (!sel) return (
+    <>
+      {logging && <LogMeasurementSheet userId={userId} metrics={m} onClose={() => setLogging(false)} onSaved={reload} />}
+      <div className="card" style={{ padding: 28, textAlign: 'center', marginBottom: 14 }}>
+        <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', lineHeight: 1.7 }}>
+          NO MEASUREMENTS YET<br/>
+          <span style={{ fontSize: 9 }}>Log your first weigh-in to start tracking</span>
+        </div>
+      </div>
+      <button onClick={() => setLogging(true)} className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <IconPlus size={14} /> LOG MEASUREMENT
+      </button>
+    </>
+  );
 
   return (
     <>
-      {detail && <BodyMetricDetail metricKey={detail} onBack={() => setDetail(null)} onLog={() => {setDetail(null);setLogging(true);}} />}
-      {logging && <LogMeasurementSheet onClose={() => setLogging(false)} />}
+      {detail && <BodyMetricDetail met={m[detail]} onBack={() => setDetail(null)} onLog={() => {setDetail(null);setLogging(true);}} />}
+      {logging && <LogMeasurementSheet userId={userId} metrics={m} onClose={() => setLogging(false)} onSaved={reload} />}
 
       {/* Hero metric */}
       <div className="card" style={{ padding: 16, marginBottom: 14, background: 'linear-gradient(135deg, rgba(0,245,255,0.08), rgba(176,114,255,0.04)), var(--bg-2)' }}>
@@ -253,27 +358,27 @@ function BodyTab() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="label">// {sel.label.toUpperCase()}</span>
-              <span className="chip" style={{ fontSize: 8, padding: '1px 6px',
-                color: sel.source === 'APPLE_HEALTH' ? 'var(--pink)' : 'var(--text-3)',
-                borderColor: sel.source === 'APPLE_HEALTH' ? 'var(--pink)' : 'var(--line-strong)'
-              }}>
-                {sel.source === 'APPLE_HEALTH' ? '◉ APPLE HEALTH' : 'MANUAL'}
-              </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-              <span className="h-bold" style={{ fontSize: 36, color: 'var(--accent)' }}>
-                {typeof sel.value === 'number' && sel.value > 1000 ? sel.value.toLocaleString() : sel.value}
-              </span>
+              <span className="h-bold" style={{ fontSize: 36, color: 'var(--accent)' }}>{sel.value}</span>
               <span className="mono" style={{ fontSize: 12, color: 'var(--text-2)' }}>{sel.unit}</span>
             </div>
-            <div className="mono" style={{ fontSize: 11, color: '#189CAA', marginTop: 4, letterSpacing: '0.08em' }}>
-              {sel.delta > 0 ? '▲' : '▼'} {Math.abs(sel.delta)}{sel.unit !== '/day' && sel.unit !== 'bpm' ? sel.unit : ''} ({Math.abs(sel.deltaPct)}%) vs prior 30d
-            </div>
+            {sel.series.length > 1 && (
+              <div className="mono" style={{ fontSize: 11, color: '#189CAA', marginTop: 4, letterSpacing: '0.08em' }}>
+                {sel.delta >= 0 ? '▲' : '▼'} {Math.abs(sel.delta)}{sel.unit} ({Math.abs(sel.deltaPct)}%) vs prior 30d
+              </div>
+            )}
           </div>
         </div>
 
-        <Sparkline data={sel.history} accent />
-        <button onClick={() => setDetail(selected)} style={{
+        {sel.history.length > 1 ? (
+          <Sparkline data={sel.history} accent />
+        ) : (
+          <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', padding: '14px 0', textAlign: 'center' }}>
+            LOG MORE MEASUREMENTS TO SEE YOUR TREND
+          </div>
+        )}
+        <button onClick={() => setDetail(sel.key)} style={{
           all: 'unset', cursor: 'pointer', marginTop: 10, width: '100%', boxSizing: 'border-box',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           padding: '8px', borderRadius: 8, border: '1px solid var(--line-strong)',
@@ -289,24 +394,23 @@ function BodyTab() {
         <button key={k} onClick={() => setSelected(k)} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
             <div className="card" style={{
             padding: 12,
-            borderColor: selected === k ? 'var(--accent)' : 'var(--line)',
-            background: selected === k ? 'var(--accent-soft)' : undefined
+            borderColor: sel.key === k ? 'var(--accent)' : 'var(--line)',
+            background: sel.key === k ? 'var(--accent-soft)' : undefined
           }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span className="label" style={{ color: selected === k ? 'var(--accent)' : 'var(--text-3)' }}>
+                <span className="label" style={{ color: sel.key === k ? 'var(--accent)' : 'var(--text-3)' }}>
                   {met.label.toUpperCase()}
                 </span>
-                {met.source === 'APPLE_HEALTH' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--pink)' }} />}
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <span className="h-bold" style={{ fontSize: 18 }}>
-                  {typeof met.value === 'number' && met.value > 1000 ? met.value.toLocaleString() : met.value}
-                </span>
+                <span className="h-bold" style={{ fontSize: 18 }}>{met.value}</span>
                 <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)' }}>{met.unit}</span>
               </div>
-              <div className="mono" style={{ fontSize: 9, color: '#189CAA', marginTop: 4, letterSpacing: '0.08em' }}>
-                {met.delta > 0 ? '▲' : '▼'} {Math.abs(met.deltaPct)}%
-              </div>
+              {met.series.length > 1 && (
+                <div className="mono" style={{ fontSize: 9, color: '#189CAA', marginTop: 4, letterSpacing: '0.08em' }}>
+                  {met.delta >= 0 ? '▲' : '▼'} {Math.abs(met.deltaPct)}%
+                </div>
+              )}
             </div>
           </button>
         )}
@@ -320,16 +424,9 @@ function BodyTab() {
 }
 
 // ── BODY METRIC DETAIL (full history drill) ──────────────────────
-function BodyMetricDetail({ metricKey, onBack, onLog }) {
-  const met = BODY_METRICS[metricKey];
+function BodyMetricDetail({ met, onBack, onLog }) {
   if (!met) return null;
-  const auto = met.source === 'APPLE_HEALTH';
-  // Build a dated history list (most recent first) from the history array.
-  const today = new Date(2026, 4, 1);
-  const rows = [...met.history].map((v, i) => {
-    const d = new Date(today); d.setDate(d.getDate() - (met.history.length - 1 - i) * 7);
-    return { v, date: `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` };
-  }).reverse();
+  const rows = [...met.series].reverse(); // most recent first
 
   return (
     <div style={{
@@ -349,23 +446,20 @@ function BodyMetricDetail({ metricKey, onBack, onLog }) {
         <div className="card" style={{ padding: 16, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span className="h-bold" style={{ fontSize: 40, color: 'var(--accent)' }}>
-                {typeof met.value === 'number' && met.value > 1000 ? met.value.toLocaleString() : met.value}
-              </span>
+              <span className="h-bold" style={{ fontSize: 40, color: 'var(--accent)' }}>{met.value}</span>
               <span className="mono" style={{ fontSize: 13, color: 'var(--text-2)' }}>{met.unit}</span>
             </div>
-            <span className="chip" style={{ fontSize: 8, padding: '2px 7px',
-              color: auto ? 'var(--pink)' : 'var(--text-3)',
-              borderColor: auto ? 'var(--pink)' : 'var(--line-strong)' }}>
-              {auto ? '◉ APPLE HEALTH' : 'MANUAL'}
-            </span>
           </div>
-          <div className="mono" style={{ fontSize: 11, color: '#189CAA', marginTop: 4, letterSpacing: '0.08em' }}>
-            {met.delta > 0 ? '▲' : '▼'} {Math.abs(met.delta)}{met.unit} ({Math.abs(met.deltaPct)}%) vs prior 30d
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <Sparkline data={met.history} accent />
-          </div>
+          {met.series.length > 1 && (
+            <div className="mono" style={{ fontSize: 11, color: '#189CAA', marginTop: 4, letterSpacing: '0.08em' }}>
+              {met.delta >= 0 ? '▲' : '▼'} {Math.abs(met.delta)}{met.unit} ({Math.abs(met.deltaPct)}%) vs prior 30d
+            </div>
+          )}
+          {met.history.length > 1 && (
+            <div style={{ marginTop: 10 }}>
+              <Sparkline data={met.history} accent />
+            </div>
+          )}
         </div>
 
         {/* History log */}
@@ -380,8 +474,8 @@ function BodyMetricDetail({ metricKey, onBack, onLog }) {
                 padding: '11px 12px',
                 borderBottom: i < rows.length - 1 ? '1px dashed var(--line)' : 'none'
               }}>
-                <span className="mono" style={{ fontSize: 11, color: 'var(--text-2)', letterSpacing: '0.04em' }}>{r.date}</span>
-                <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{r.v}{met.unit !== '/day' && met.unit !== 'bpm' ? met.unit : ''}</span>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--text-2)', letterSpacing: '0.04em' }}>{fmtMetricDate(r.date)}</span>
+                <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{r.v}{met.unit}</span>
                 <span className="mono" style={{ fontSize: 10, fontWeight: 600, minWidth: 42, textAlign: 'right',
                   color: diff === 0 ? 'var(--text-3)' : diff > 0 ? 'var(--c-amber)' : 'var(--accent)' }}>
                   {diff === 0 ? '—' : `${diff > 0 ? '+' : ''}${diff}`}
@@ -390,40 +484,36 @@ function BodyMetricDetail({ metricKey, onBack, onLog }) {
           })}
         </div>
 
-        {!auto &&
         <button onClick={onLog} className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <IconPlus size={14} /> LOG NEW {met.label.toUpperCase()}
-        </button>}
-        {auto &&
-        <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)', textAlign: 'center', letterSpacing: '0.06em', lineHeight: 1.5 }}>
-          ◉ Synced automatically from Apple Health
-        </div>}
+        </button>
       </div>
     </div>);
 
 }
 
 // ── LOG MEASUREMENT SHEET ────────────────────────────────────────
-// Manual entry for the body measurements (steps/HR/sleep are automated).
-const LOG_FIELDS = [
-  { key: 'weight',  label: 'Weight',   unit: 'kg' },
-  { key: 'bodyfat', label: 'Body fat', unit: '%' },
-  { key: 'waist',   label: 'Waist',    unit: 'cm' },
-  { key: 'neck',    label: 'Neck',     unit: 'cm' },
-  { key: 'chest',   label: 'Chest',    unit: 'cm' }
-];
-
-function LogMeasurementSheet({ onClose }) {
-  const m = BODY_METRICS;
-  const [vals, setVals] = React.useState(() => Object.fromEntries(LOG_FIELDS.map((f) => [f.key, ''])));
+function LogMeasurementSheet({ userId, metrics, onClose, onSaved }) {
+  const [vals, setVals] = React.useState(() => Object.fromEntries(METRIC_DEFS.map((f) => [f.key, ''])));
+  const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
-  const anyFilled = LOG_FIELDS.some((f) => vals[f.key].trim() !== '');
+  const anyFilled = METRIC_DEFS.some((f) => vals[f.key].trim() !== '');
 
-  const save = () => {
-    if (!anyFilled) return;
+  const save = async () => {
+    if (!anyFilled || saving) return;
+    setSaving(true);
+    const payload = { client_id: userId, recorded_at: new Date().toISOString().slice(0, 10) };
+    METRIC_DEFS.forEach((f) => {
+      if (vals[f.key].trim() !== '') payload[f.col] = parseFloat(vals[f.key]);
+    });
+    await supabase.from('body_metrics').insert(payload);
+    setSaving(false);
     setSaved(true);
+    onSaved?.();
     setTimeout(onClose, 900);
   };
+
+  const todayLabel = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   return (
     <div onClick={onClose} style={{
@@ -450,25 +540,27 @@ function LogMeasurementSheet({ onClose }) {
         </div> :
         <>
           <div className="label">// LOG MEASUREMENT</div>
-          <div className="h-bold" style={{ fontSize: 20, marginTop: 4, marginBottom: 4 }}>TODAY · {`${String(new Date(2026,4,1).getDate()).padStart(2,'0')}/05/2026`}</div>
+          <div className="h-bold" style={{ fontSize: 20, marginTop: 4, marginBottom: 4 }}>TODAY · {todayLabel}</div>
           <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.05em', marginBottom: 16, lineHeight: 1.5 }}>
-            Enter what you measured — steps, HR &amp; sleep sync automatically.
+            Enter what you measured — leave the rest blank.
           </div>
 
           <div style={{ display: 'grid', gap: 10, marginBottom: 18 }}>
-            {LOG_FIELDS.map((f) =>
+            {METRIC_DEFS.map((f) =>
             <div key={f.key} style={{
               display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center',
               padding: '10px 14px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 12
             }}>
               <div>
                 <div className="mono" style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, letterSpacing: '0.06em' }}>{f.label.toUpperCase()}</div>
-                <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>last {m[f.key].value}{f.unit}</div>
+                <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>
+                  {metrics?.[f.key] ? `last ${metrics[f.key].value}${f.unit}` : 'not logged yet'}
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <input value={vals[f.key]} inputMode="decimal"
                   onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value.replace(/[^\d.]/g, '') }))}
-                  placeholder={String(m[f.key].value)}
+                  placeholder={metrics?.[f.key] ? String(metrics[f.key].value) : '—'}
                   style={{
                     width: 70, textAlign: 'right', background: 'var(--bg-1)', border: '1px solid var(--line-strong)',
                     borderRadius: 8, padding: '8px 10px', color: 'var(--accent)',
@@ -480,8 +572,8 @@ function LogMeasurementSheet({ onClose }) {
             )}
           </div>
 
-          <button onClick={save} className="btn-primary" style={{ width: '100%', opacity: anyFilled ? 1 : 0.5, pointerEvents: anyFilled ? 'auto' : 'none' }}>
-            SAVE MEASUREMENTS
+          <button onClick={save} className="btn-primary" style={{ width: '100%', opacity: anyFilled ? 1 : 0.5, pointerEvents: anyFilled && !saving ? 'auto' : 'none' }}>
+            {saving ? 'SAVING…' : 'SAVE MEASUREMENTS'}
           </button>
         </>}
       </div>
@@ -626,7 +718,7 @@ function WeightTab({ range, userId }) {
         <SubTab active={view === 'cats'} onClick={() => setView('cats')} label="CATEGORIES" icon="▦" />
         <SubTab active={view === 'map'} onClick={() => setView('map')} label="MUSCLE MAP" icon="◉" />
       </div>
-      {view === 'cats' ? <CategoriesView onPick={setCatId} cats={cats} exs={exs} /> : <MuscleMapView range={range} />}
+      {view === 'cats' ? <CategoriesView onPick={setCatId} cats={cats} exs={exs} /> : <MuscleMapView range={range} userId={userId} />}
     </>);
 
 }
@@ -878,18 +970,43 @@ function MiniLine({ data, color }) {
 }
 
 // ── MUSCLE MAP VIEW ───────────────────────────────────────────────
-function MuscleMapView({ range }) {
+const RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
+
+function MuscleMapView({ range, userId }) {
   const [side, setSide] = React.useState('front');
   const [picked, setPicked] = React.useState(null);
-  const data = MUSCLE_VOLUME[range];
+  const [data, setData] = React.useState(null);
+  const days = RANGE_DAYS[range] || 30;
+
+  React.useEffect(() => {
+    if (!userId) { setData({}); return; }
+    setData(null);
+    setPicked(null);
+    loadMuscleVolume(userId, days).then(setData);
+  }, [userId, days]);
+
   const labels = MUSCLE_LABELS;
 
+  if (data === null) return (
+    <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+      <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.12em' }}>LOADING…</div>
+    </div>
+  );
+
+  if (Object.keys(data).length === 0) return (
+    <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+      <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', lineHeight: 1.7 }}>
+        NO TRAINING DATA IN THE LAST {range.toUpperCase()}<br/>
+        <span style={{ fontSize: 9 }}>Complete sessions to light up the heatmap</span>
+      </div>
+    </div>
+  );
+
   // Compute intensity (0..1) per muscle from set count
-  const maxSets = Math.max(...Object.values(data).map((d) => d.sets));
+  const maxSets = Math.max(1, ...Object.values(data).map((d) => d.sets));
   const intensity = (id) => Math.min(1, (data[id]?.sets || 0) / maxSets);
 
   const sorted = Object.entries(data).sort((a, b) => b[1].sets - a[1].sets);
-  const top = sorted[0];
   const bottom = sorted[sorted.length - 1];
 
   return (

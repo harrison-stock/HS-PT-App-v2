@@ -1,6 +1,7 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
 import { loadMuscleVolume } from '../lib/muscleVolume'
+import { loadPhotoHistory } from '../lib/progressPhotos'
 import { Hex, HexBackButton } from '../components/hex'
 import { BodyMap } from './Progress'
 import { MUSCLE_BODY } from '../data/musclePaths'
@@ -486,11 +487,56 @@ function DataTab({ c, trainerId }) {
         </div>
       ))}
 
-      {/* Progress photos placeholder */}
+      {/* Progress photos (uploaded by the client from their Progress tab) */}
       <div className="label" style={{ marginTop: 8 }}>// PROGRESS PHOTOS</div>
-      <div className="card" style={{ padding: 16, textAlign: 'center' }}>
-        <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.1em' }}>PHOTO UPLOADS COMING SOON</div>
-      </div>
+      <ClientPhotos c={c} />
+    </div>
+  );
+}
+
+function ClientPhotos({ c }) {
+  const [groups, setGroups] = React.useState(null);
+
+  React.useEffect(() => {
+    if (c.managed) { setGroups([]); return; }
+    loadPhotoHistory(c.id).then(setGroups);
+  }, [c.id, c.managed]);
+
+  if (groups === null) return <Mono>LOADING PHOTOS…</Mono>;
+  if (groups.length === 0) return (
+    <EmptyState>
+      {c.managed
+        ? 'Photos become available once the client signs up'
+        : 'No photos submitted yet — the client uploads these from their Progress tab'}
+    </EmptyState>
+  );
+
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {groups.map(g => (
+        <div key={g.date} className="card" style={{ padding: 12 }}>
+          <div className="mono" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text)', marginBottom: 8 }}>
+            {new Date(g.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase()}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+            {['front', 'side', 'back'].map(pose => {
+              const row = g.shots[pose];
+              return (
+                <div key={pose} style={{
+                  aspectRatio: '3/4', borderRadius: 8, overflow: 'hidden', position: 'relative',
+                  background: row?.url ? `url('${row.url}') center/cover` : 'var(--bg-3)',
+                  border: '1px solid var(--line)',
+                }}>
+                  <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.55))' }}/>
+                  <span className="mono" style={{ position: 'absolute', bottom: 4, left: 5, fontSize: 8, color: '#fff', letterSpacing: '0.1em', fontWeight: 700 }}>
+                    {pose.toUpperCase()}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
