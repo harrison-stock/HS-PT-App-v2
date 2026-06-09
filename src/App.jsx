@@ -165,7 +165,7 @@ export default function App() {
   else if (screen === 'progress')   ScreenEl = <Progress go={navigate} userId={session.user.id}/>;
   else if (screen === 'resources')  ScreenEl = <Resources go={navigate}/>;
   else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id}/>;
-  else if (screen === 'notifications') ScreenEl = <Notifications go={navigate}/>;
+  else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={session.user.id} isTrainer={isTrainer}/>;
   else if (screen === 'sessionresults') ScreenEl = (
     <SessionComplete exercises={ACTIVE_EXERCISES} sessionTime={2820} go={navigate} onClose={() => navigate('dashboard')}/>
   );

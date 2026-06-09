@@ -1,7 +1,7 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
 import { HEX_RATIO, HexShape, Hex } from '../components/hex'
-import { IconBell, IconPlay, IconChart, IconCheck, IconClipboard, IconDoc, IconScale, IconCamera2, IconX2, IconPlus } from '../components/icons'
+import { IconBell, IconPlay, IconChart, IconCheck, IconClipboard, IconScale, IconCamera2 } from '../components/icons'
 
 function useLiveClock() {
   const [now, setNow] = React.useState(() => new Date());
@@ -46,19 +46,61 @@ function shapeWorkout(row) {
   };
 }
 
+function shapeTask(t) {
+  const today = new Date().toISOString().slice(0, 10);
+  let sub;
+  if (t.completed_at)   sub = `Completed ${new Date(t.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+  else if (!t.due_date) sub = 'No due date';
+  else if (t.due_date === today) sub = 'Due today';
+  else if (t.due_date < today)   sub = `Overdue · was due ${new Date(t.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+  else sub = `Due ${new Date(t.due_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`;
+  return {
+    id: t.id,
+    title: t.title,
+    kind: t.kind,
+    icon: t.kind, // check | log | photo
+    sub,
+    done: !!t.completed_at,
+    overdue: !t.completed_at && t.due_date && t.due_date < today,
+  };
+}
+
 // Dashboard / Home screen
 export function Dashboard({ go, user, userId }) {
   const name = (user && user.name) || 'Athlete';
   const firstName = name.trim().split(/\s+/)[0];
   const initials = name.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
-  const [tasks] = React.useState([]);
-  const [formTask, setFormTask] = React.useState(null);
+  const [tasks, setTasks] = React.useState([]);
   const [todayWorkout, setTodayWorkout] = React.useState(null);
   const [workoutLoading, setWorkoutLoading] = React.useState(true);
   const now = useLiveClock();
 
   const today = new Date().toISOString().slice(0, 10);
   const done = todayWorkout?.status === 'completed';
+
+  const loadTasks = React.useCallback(() => {
+    if (!userId) return;
+    supabase.from('client_tasks')
+      .select('*')
+      .eq('client_id', userId)
+      .then(({ data }) => {
+        const rows = data || [];
+        rows.sort((a, b) => {
+          if (!!a.completed_at !== !!b.completed_at) return a.completed_at ? 1 : -1;
+          return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : 1;
+        });
+        setTasks(rows.map(shapeTask));
+      });
+  }, [userId]);
+
+  React.useEffect(() => { loadTasks(); }, [loadTasks]);
+
+  const toggleTask = async (t) => {
+    await supabase.from('client_tasks')
+      .update({ completed_at: t.done ? null : new Date().toISOString() })
+      .eq('id', t.id);
+    loadTasks();
+  };
 
   React.useEffect(() => {
     if (!userId) { setWorkoutLoading(false); return; }
@@ -90,7 +132,6 @@ export function Dashboard({ go, user, userId }) {
       });
   }, [userId, today]);
 
-  const completeTask = id => setTasks(prev => prev.map(t => t.id === id ? { ...t, done: true } : t));
   return (
     <div className="scroller" style={{ padding: '0 16px 110px', paddingTop: 64 }}>
       {/* Top bar */}
@@ -105,7 +146,9 @@ export function Dashboard({ go, user, userId }) {
             <HexShape size={38} fill="var(--bg-2)" stroke="var(--line-strong)" strokeWidth={9}
             style={{ position: 'absolute', inset: 0 }} />
             <IconBell size={15} style={{ position: 'relative', color: 'var(--text-2)' }} />
-            <span style={{ position: 'absolute', top: 1, right: 3, zIndex: 2, width: 8, height: 8, borderRadius: '50%', background: 'var(--c-coral)', border: '1.5px solid var(--bg-1)' }} />
+            {tasks.some(t => !t.done) && (
+              <span style={{ position: 'absolute', top: 1, right: 3, zIndex: 2, width: 8, height: 8, borderRadius: '50%', background: 'var(--c-coral)', border: '1.5px solid var(--bg-1)' }} />
+            )}
           </button>
           <img src="assets/logomark.svg" alt="HS" style={{ width: 38, height: 38, display: 'block', filter: 'drop-shadow(0 0 calc(9px * var(--glow)) var(--accent-glow))' }} />
         </div>
@@ -184,26 +227,21 @@ export function Dashboard({ go, user, userId }) {
       </div>
 
       {/* Tasks */}
-      <TasksSection tasks={tasks} onOpenForm={(t) => setFormTask(t)}
-        onAction={(t) => completeTask(t.id)} />
+      <TasksSection tasks={tasks} onToggle={toggleTask} go={go} />
 
       {/* Programme roadmap */}
       <ProgrammeRoadmap userId={userId} />
-
-      {formTask &&
-      <TaskForm task={formTask}
-        onClose={() => setFormTask(null)}
-        onSubmit={() => { completeTask(formTask.id); setFormTask(null); }} />
-      }
     </div>);
 
 }
 
 // ── TASKS ────────────────────────────────────────────────────────
-function TasksSection({ tasks, onOpenForm, onAction }) {
+// Tasks assigned by the trainer (client_tasks). Tap to tick off.
+function TasksSection({ tasks, onToggle }) {
   const TASK_ICON = {
-    form: IconClipboard, doc: IconDoc,
-    scale: IconScale, camera: IconCamera2
+    check: IconClipboard,
+    log:   IconScale,
+    photo: IconCamera2,
   };
   const open = tasks.filter((t) => !t.done);
   const doneCount = tasks.length - open.length;
@@ -226,12 +264,11 @@ function TasksSection({ tasks, onOpenForm, onAction }) {
         )}
         {tasks.map((t) => {
           const Icon = TASK_ICON[t.icon] || IconClipboard;
-          const tint = t.done ? 'var(--text-3)' : t.kind === 'form' ? 'var(--accent)' : 'var(--c-amber)';
+          const tint = t.done ? 'var(--text-3)' : t.overdue ? 'var(--c-coral)' : 'var(--c-amber)';
           return (
-            <button key={t.id} onClick={() => t.kind === 'form' ? onOpenForm(t) : onAction(t)}
-            disabled={t.done}
+            <button key={t.id} onClick={() => onToggle(t)}
             style={{
-              all: 'unset', cursor: t.done ? 'default' : 'pointer', display: 'block',
+              all: 'unset', cursor: 'pointer', display: 'block',
               opacity: t.done ? 0.62 : 1
             }}>
               <div className="card" style={{
@@ -249,7 +286,7 @@ function TasksSection({ tasks, onOpenForm, onAction }) {
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: t.done ? 'line-through' : 'none' }}>
                     {t.title}
                   </div>
-                  <div className="mono" style={{ fontSize: 9.5, color: 'var(--text-3)', letterSpacing: '0.04em', marginTop: 3 }}>
+                  <div className="mono" style={{ fontSize: 9.5, color: t.overdue ? 'var(--c-coral)' : 'var(--text-3)', letterSpacing: '0.04em', marginTop: 3 }}>
                     {t.sub}
                   </div>
                 </div>
@@ -262,140 +299,13 @@ function TasksSection({ tasks, onOpenForm, onAction }) {
                   color: tint, padding: '4px 9px', borderRadius: 999,
                   background: `color-mix(in srgb, ${tint} 12%, transparent)`,
                   border: `1px solid color-mix(in srgb, ${tint} 35%, transparent)`
-                }}>{t.kind === 'form' ? 'OPEN' : 'LOG'}</span>}
+                }}>MARK DONE</span>}
               </div>
             </button>);
         })}
       </div>
     </div>);
 
-}
-
-// In-app form (bottom sheet) for form-type tasks.
-function TaskForm({ task, onClose, onSubmit }) {
-  const f = task.form || { title: task.title.toUpperCase(), intro: '', fields: [] };
-  const [values, setValues] = React.useState({});
-  const set = (id, v) => setValues((prev) => ({ ...prev, [id]: v }));
-  const required = f.fields.filter((x) => x.type !== 'textarea');
-  const complete = task.done || required.every((x) => values[x.id] != null && values[x.id] !== '');
-
-  return (
-    <div onClick={onClose} style={{
-      position: 'absolute', inset: 0, zIndex: 80,
-      background: 'rgba(7,7,12,0.7)', backdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'flex-end'
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        width: '100%', maxHeight: '88%',
-        background: 'var(--bg-1)',
-        borderTopLeftRadius: 20, borderTopRightRadius: 20,
-        border: '1px solid var(--line-strong)', borderBottom: 0,
-        display: 'flex', flexDirection: 'column'
-      }}>
-        <div style={{ padding: '12px 16px 0', flexShrink: 0 }}>
-          <div style={{ width: 36, height: 4, background: 'var(--line-strong)', borderRadius: 2, margin: '0 auto 14px' }} />
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-            <div>
-              <div className="label">// {task.done ? 'SUBMITTED' : 'TASK'}</div>
-              <div className="h-bold" style={{ fontSize: 19, marginTop: 4, lineHeight: 1.15 }}>{f.title}</div>
-            </div>
-            <button onClick={onClose} aria-label="Close" style={{ all: 'unset', cursor: 'pointer', flexShrink: 0 }}>
-              <Hex size={32} square style={{ background: 'var(--bg-2)', border: '1px solid var(--line-strong)', color: 'var(--text)' }}>
-                <IconX2 size={14} />
-              </Hex>
-            </button>
-          </div>
-          {f.intro && <div className="mono" style={{ fontSize: 11.5, color: 'var(--text-2)', lineHeight: 1.5, margin: '12px 0 2px' }}>{f.intro}</div>}
-        </div>
-
-        <div className="scroller" style={{ flex: 1, padding: '14px 16px 8px', minHeight: 0, display: 'grid', gap: 16 }}>
-          {f.fields.length === 0 &&
-          <div className="card" style={{ padding: 16, textAlign: 'center', color: 'var(--text-2)', fontSize: 12 }}>
-            Nothing to fill out — you're all set.
-          </div>}
-          {f.fields.map((field) =>
-          <FormField key={field.id} field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} />
-          )}
-        </div>
-
-        <div style={{ padding: '12px 16px 26px', flexShrink: 0, background: 'linear-gradient(180deg, transparent, var(--bg-1) 40%)' }}>
-          {task.done ?
-          <button onClick={onClose} className="btn-ghost" style={{ width: '100%' }}>CLOSE</button> :
-          <button onClick={onSubmit} disabled={!complete} className="btn-primary"
-            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: complete ? 1 : 0.45, pointerEvents: complete ? 'auto' : 'none' }}>
-            <IconCheck size={14} sw={3} /> SUBMIT TO COACH
-          </button>}
-        </div>
-      </div>
-    </div>);
-
-}
-
-function FormField({ field, value, onChange }) {
-  const labelEl = <div className="mono" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-2)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase' }}>{field.label}</div>;
-  if (field.type === 'number') {
-    return (
-      <div>{labelEl}
-        <input value={value || ''} inputMode="decimal" placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        style={taskInputStyle()} />
-      </div>);
-  }
-  if (field.type === 'textarea') {
-    return (
-      <div>{labelEl}
-        <textarea value={value || ''} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)}
-        style={{ ...taskInputStyle(), minHeight: 70, resize: 'vertical' }} />
-      </div>);
-  }
-  if (field.type === 'scale') {
-    const opts = Array.from({ length: field.max - field.min + 1 }, (_, i) => field.min + i);
-    return (
-      <div>{labelEl}
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${opts.length}, 1fr)`, gap: 6 }}>
-          {opts.map((n) => {
-            const sel = value === n;
-            return (
-              <button key={n} onClick={() => onChange(n)} style={{
-                all: 'unset', cursor: 'pointer', textAlign: 'center',
-                padding: '11px 0', borderRadius: 9,
-                background: sel ? 'var(--accent)' : 'var(--bg-2)',
-                border: '1px solid ' + (sel ? 'var(--accent)' : 'var(--line-strong)'),
-                color: sel ? 'var(--on-accent)' : 'var(--text-2)',
-                fontFamily: 'JetBrains Mono', fontSize: 14, fontWeight: 700
-              }}>{n}</button>);
-          })}
-        </div>
-      </div>);
-  }
-  // choice
-  return (
-    <div>{labelEl}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {field.options.map((opt) => {
-          const sel = value === opt;
-          return (
-            <button key={opt} onClick={() => onChange(opt)} style={{
-              all: 'unset', cursor: 'pointer',
-              padding: '9px 14px', borderRadius: 999,
-              background: sel ? 'var(--accent-soft)' : 'var(--bg-2)',
-              border: '1px solid ' + (sel ? 'var(--accent)' : 'var(--line-strong)'),
-              color: sel ? 'var(--accent)' : 'var(--text-2)',
-              fontFamily: 'JetBrains Mono', fontSize: 12, fontWeight: 600
-            }}>{opt}</button>);
-        })}
-      </div>
-    </div>);
-
-}
-
-function taskInputStyle() {
-  return {
-    width: '100%', boxSizing: 'border-box',
-    background: 'var(--bg-2)', border: '1px solid var(--line-strong)', borderRadius: 10,
-    padding: '11px 12px', color: 'var(--text)', outline: 'none',
-    fontFamily: 'JetBrains Mono', fontSize: 13, lineHeight: 1.5
-  };
 }
 
 async function loadRoadmap(userId) {
