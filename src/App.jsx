@@ -1,6 +1,5 @@
 import React from 'react'
 import { supabase } from './lib/supabase'
-import { ACTIVE_EXERCISES } from './data/index'
 import { HexShape } from './components/hex'
 import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt } from './components/icons'
 import { Login } from './screens/Login'
@@ -12,7 +11,7 @@ import { Resources } from './screens/Resources'
 import { Profile } from './screens/Profile'
 import { Notifications } from './screens/Notifications'
 import { Coach } from './screens/Coach'
-import { SessionComplete } from './screens/ActiveLog'
+import { SessionResults } from './screens/ActiveLog'
 
 const ACCENTS = {
   sea:      { c: '#46BBC0', soft: 'rgba(70,187,192,0.16)',  glow: 'rgba(70,187,192,0.45)',  on: '#06262A' },
@@ -42,6 +41,7 @@ export default function App() {
   const [screen, setScreen] = React.useState('dashboard');
   const [previewWorkoutId, setPreviewWorkoutId] = React.useState(null);
   const [logDayId, setLogDayId] = React.useState(null);
+  const [resultsDayId, setResultsDayId] = React.useState(null);
   const [clientViewId, setClientViewId] = React.useState(null);
   const [clientViewName, setClientViewName] = React.useState(null);
 
@@ -111,7 +111,8 @@ export default function App() {
       return;
     }
     if (target === 'log') setLogDayId(opts?.dayId || null);
-    if (!['workouts', 'log'].includes(target)) {
+    if (target === 'sessionresults') setResultsDayId(opts?.dayId || null);
+    if (!['workouts', 'log', 'sessionresults'].includes(target)) {
       setClientViewId(null);
       setClientViewName(null);
     }
@@ -167,7 +168,7 @@ export default function App() {
   else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id}/>;
   else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={session.user.id} isTrainer={isTrainer}/>;
   else if (screen === 'sessionresults') ScreenEl = (
-    <SessionComplete exercises={ACTIVE_EXERCISES} sessionTime={2820} go={navigate} onClose={() => navigate('dashboard')}/>
+    <SessionResults dayId={resultsDayId} userId={activeUserId} go={navigate} onClose={() => navigate('dashboard')}/>
   );
   else if (screen === 'profile') ScreenEl = (
     <Profile

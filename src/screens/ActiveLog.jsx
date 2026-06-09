@@ -1,6 +1,7 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
 import { ACTIVE_EXERCISES, PHASES, MUSCLE_LABELS } from '../data/index'
+import { muscleGroupsFor } from '../lib/muscleVolume'
 import { BodyMap } from './Progress'
 import { Hex, HexBackButton } from '../components/hex'
 import { IconPause, IconPlay, IconCheck, IconX2, IconChevronLeft, IconChevronRight, IconPlus, IconTrophy, IconTimer, IconFlame, IconBand, IconDumbbell, IconLeaf, IconActivity, IconSwap, IconTrend, IconMetronome } from '../components/icons'
@@ -12,7 +13,7 @@ import { IconPause, IconPlay, IconCheck, IconX2, IconChevronLeft, IconChevronRig
 export function ActiveLog({ go, dayId, userId }) {
   const [exercises, setExercises] = React.useState(ACTIVE_EXERCISES);
   const [activeIdx, setActiveIdx] = React.useState(0); // start on Pulse warm-up
-  const [sessionTime, setSessionTime] = React.useState(34 * 60 + 12);
+  const [sessionTime, setSessionTime] = React.useState(0);
   const [restTime, setRestTime] = React.useState(0);
   const [resting, setResting] = React.useState(false);
   const [timesUp, setTimesUp] = React.useState(false);
@@ -805,19 +806,31 @@ export function SessionComplete({ exercises, sessionTime, go, onClose }) {
   const volume = exercises.reduce((n, e) => n + e.sets.filter((s) => s.done && s.kg).reduce((a, s) => a + s.kg * (typeof s.reps === 'number' ? s.reps : 0), 0), 0);
   const fmtT = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-  // PRs — heaviest done working set per weighted exercise, framed as a new best.
+  // Top sets — heaviest done working set per weighted exercise.
   const prs = exercises
     .filter((e) => e.sets.some((s) => s.kg && s.done))
     .map((e) => {
       const done = e.sets.filter((s) => s.kg && s.done);
       const top = Math.max(...done.map((s) => s.kg));
       const set = done.find((s) => s.kg === top);
-      return { name: e.name, kg: top, reps: typeof set?.reps === 'number' ? set.reps : 8, delta: 2.5 };
+      return { name: e.name, kg: top, reps: typeof set?.reps === 'number' ? set.reps : null };
     })
     .sort((a, b) => b.kg - a.kg)
     .slice(0, 2);
 
-  const trained = SESSION_MUSCLES;
+  // Muscles trained — inferred from the names of exercises with completed sets.
+  const trained = React.useMemo(() => {
+    const counts = {};
+    exercises.forEach((e) => {
+      const doneSets = e.sets.filter((s) => s.done).length;
+      if (!doneSets) return;
+      muscleGroupsFor(e.name).forEach((g, i) => {
+        counts[g] = (counts[g] || 0) + doneSets * (i === 0 ? 1 : 0.6);
+      });
+    });
+    const max = Math.max(1, ...Object.values(counts));
+    return Object.fromEntries(Object.entries(counts).map(([g, v]) => [g, v / max]));
+  }, [exercises]);
   const intensity = (g) => trained[g] || 0;
   const data = Object.fromEntries(Object.keys(trained).map((g) => [g, { sets: 1 }]));
   const trainedLabels = Object.keys(trained).map((g) => (MUSCLE_LABELS || {})[g] || g);
@@ -866,7 +879,7 @@ export function SessionComplete({ exercises, sessionTime, go, onClose }) {
         </div>
 
         {prs.length > 0 && <>
-          <div className="label" style={{ margin: '0 2px 8px' }}>// PERSONAL RECORDS</div>
+          <div className="label" style={{ margin: '0 2px 8px' }}>// TOP SETS</div>
           <div style={{ display: 'grid', gap: 8, marginBottom: 18 }}>
             {prs.map((pr, i) =>
             <div key={i} className="card" style={{
@@ -884,10 +897,10 @@ export function SessionComplete({ exercises, sessionTime, go, onClose }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>{pr.name}</div>
                 <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 3 }}>
-                  NEW BEST · {pr.kg}kg × {pr.reps}
+                  BEST TODAY{pr.reps ? ` · × ${pr.reps}` : ''}
                 </div>
               </div>
-              <span className="mono" style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-amber)' }}>+{pr.delta}kg</span>
+              <span className="mono" style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-amber)' }}>{pr.kg}kg</span>
             </div>
             )}
           </div>
@@ -988,11 +1001,6 @@ function SCKpi({ label, value, unit }) {
       </div>
     </div>);
 }
-
-// Muscles trained in this (lower-body) session → relative intensity.
-const SESSION_MUSCLES = {
-  quads: 1.0, glutes: 0.88, hamstrings: 0.72, calves: 0.55, lowerBack: 0.45
-};
 
 // Cute little icon per training phase (rendered inside the phase-strip hex).
 const PHASE_ICON = {
@@ -1548,5 +1556,66 @@ function buildPriorSessions(ex) {
   });
 }
 
-ActiveLog = ActiveLog;
-SessionComplete = SessionComplete;
+// ── SESSION RESULTS (standalone) ─────────────────────────────────
+// Loads the most recent completed session for a programme day and
+// renders the results screen from the real logged sets.
+export function SessionResults({ dayId, userId, go, onClose }) {
+  const [state, setState] = React.useState(null); // null=loading, 'none', or { exercises, sessionTime }
+
+  React.useEffect(() => {
+    if (!dayId || !userId) { setState('none'); return; }
+    supabase
+      .from('workout_sessions')
+      .select('id, started_at, completed_at, logged_sets ( exercise_id, set_index, actual_reps, actual_weight_kg, actual_time_secs, section_exercises ( id, name, workout_sections ( kind ) ) )')
+      .eq('client_id', userId)
+      .eq('day_id', dayId)
+      .not('completed_at', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) { setState('none'); return; }
+        const KIND_TO_PHASE = { PULSE_RAISER: 'pulse', BANDED: 'banded', MAIN: 'main', COOLDOWN: 'cooldown' };
+        const exMap = new Map();
+        [...(data.logged_sets || [])]
+          .sort((a, b) => a.set_index - b.set_index)
+          .forEach((ls) => {
+            const se = ls.section_exercises;
+            if (!se) return;
+            if (!exMap.has(se.id)) exMap.set(se.id, {
+              id: se.id, name: se.name,
+              phase: KIND_TO_PHASE[se.workout_sections?.kind] || 'main',
+              sets: [],
+            });
+            exMap.get(se.id).sets.push({
+              reps: ls.actual_time_secs ? `${ls.actual_time_secs}s` : (ls.actual_reps ?? 0),
+              kg: ls.actual_weight_kg ? parseFloat(ls.actual_weight_kg) : null,
+              done: true,
+              time: !!ls.actual_time_secs,
+            });
+          });
+        const sessionTime = Math.max(0, Math.round((new Date(data.completed_at) - new Date(data.started_at)) / 1000));
+        setState({ exercises: [...exMap.values()], sessionTime });
+      });
+  }, [dayId, userId]);
+
+  if (state === null) return (
+    <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', background: 'var(--bg-1)' }}>
+      <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.2em' }}>LOADING RESULTS…</div>
+    </div>
+  );
+
+  if (state === 'none' || state.exercises.length === 0) return (
+    <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', background: 'var(--bg-1)', padding: 24 }}>
+      <div style={{ textAlign: 'center' }}>
+        <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.12em', lineHeight: 1.8, marginBottom: 18 }}>
+          NO LOGGED RESULTS FOUND<br/>
+          <span style={{ fontSize: 9 }}>This workout was marked complete without logged sets</span>
+        </div>
+        <button className="btn-ghost" onClick={onClose || (() => go('dashboard'))}>BACK</button>
+      </div>
+    </div>
+  );
+
+  return <SessionComplete exercises={state.exercises} sessionTime={state.sessionTime} go={go} onClose={onClose}/>;
+}

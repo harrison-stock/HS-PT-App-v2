@@ -38,6 +38,7 @@ function shapeWorkout(row) {
   const dayLabel = DAY_LABELS[day.day_of_week] || 'Day';
   return {
     id: row.id,
+    dayId: day.id,
     name: `${phase?.name || 'Workout'} · ${dayLabel}`,
     tag: programme?.tag || 'STRENGTH',
     duration: Math.max(30, exerciseCount * 3),
@@ -207,7 +208,7 @@ export function Dashboard({ go, user, userId }) {
                   }}>
                     <IconCheck size={14} sw={3}/> COMPLETED
                   </div>
-                  <button onClick={() => go('sessionresults')} aria-label="View results"
+                  <button onClick={() => go('sessionresults', { dayId: todayWorkout.dayId })} aria-label="View results"
                     style={{ all: 'unset', cursor: 'pointer', display: 'grid', placeItems: 'center', width: 48 * HEX_RATIO, height: 48 }}>
                     <Hex size={48} square style={{ background: 'var(--bg-3)', border: '1px solid var(--line-strong)', color: 'var(--text)' }}>
                       <IconChart size={16}/>

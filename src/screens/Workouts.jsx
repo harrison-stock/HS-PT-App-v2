@@ -246,7 +246,7 @@ export function Workouts({ go, openPreview, userId }) {
                     const done = w.status === 'completed';
                     return (
                       <button key={w.id}
-                        onClick={e => { if (!isResched) { e.stopPropagation(); done ? go('sessionresults') : setPreviewId(w.id); } }}
+                        onClick={e => { if (!isResched) { e.stopPropagation(); done ? go('sessionresults', { dayId: w.dayId }) : setPreviewId(w.id); } }}
                         style={{
                           all: 'unset', cursor: isResched ? 'inherit' : 'pointer',
                           display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10,
