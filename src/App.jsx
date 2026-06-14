@@ -1,7 +1,7 @@
 import React from 'react'
 import { supabase } from './lib/supabase'
 import { HexShape } from './components/hex'
-import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt, IconActivity } from './components/icons'
+import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt, IconActivity, IconDumbbell } from './components/icons'
 import { Login } from './screens/Login'
 import { Dashboard } from './screens/Dashboard'
 import { Workouts } from './screens/Workouts'
@@ -12,6 +12,7 @@ import { Profile } from './screens/Profile'
 import { Notifications } from './screens/Notifications'
 import { Coach } from './screens/Coach'
 import { Body } from './screens/Body'
+import { Exercises } from './screens/Exercises'
 import { SessionResults } from './screens/ActiveLog'
 
 const ACCENTS = {
@@ -176,6 +177,7 @@ export default function App() {
   else if (screen === 'body')       ScreenEl = <Body go={navigate} userId={activeUserId} trainerId={impersonating ? session.user.id : profile?.trainer_id}/>;
   else if (screen === 'resources')  ScreenEl = <Resources go={navigate} userId={session.user.id} isTrainer={navIsTrainer}/>;
   else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id}/>;
+  else if (screen === 'exercises')  ScreenEl = <Exercises trainerId={session.user.id}/>;
   else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={activeUserId} isTrainer={navIsTrainer}/>;
   else if (screen === 'sessionresults') ScreenEl = (
     <SessionResults dayId={resultsDayId} userId={activeUserId} go={navigate} onClose={() => navigate('dashboard')}/>
@@ -240,8 +242,8 @@ function BottomNav({ screen, go, isTrainer }) {
     { id: 'dashboard', label: 'HOME',     Icon: IconHome },
     { id: 'coach',     label: 'COACH',    Icon: IconBolt },
     { id: 'progress',  label: 'PROGRESS', Icon: IconChart },
-    { id: 'resources', label: 'LIBRARY',  Icon: IconBook },
-    { id: 'profile',   label: 'PROFILE',  Icon: IconUser },
+    { id: 'resources', label: 'RECIPES',  Icon: IconBook },
+    { id: 'exercises', label: 'EXERCISES', Icon: IconDumbbell },
   ] : [
     { id: 'dashboard', label: 'HOME',     Icon: IconHome },
     { id: 'workouts',  label: 'TRAIN',    Icon: IconCalendar },

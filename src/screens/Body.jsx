@@ -5,7 +5,7 @@ import { MUSCLE_BODY, REGION_LABELS } from '../data/musclePaths'
 import { BodyMap } from './Progress'
 import { InjuryThread } from './InjuryThread'
 import { IconPlus, IconX2, IconChevronRight } from '../components/icons'
-import { SEV_COLOR, SEV_LABEL, SEV_VAL, loadInjuries, reportInjury } from '../lib/injuries'
+import { SEV_COLOR, SEV_LABEL, SEV_VAL, LAT_LABEL, injuryTitle, loadInjuries, reportInjury } from '../lib/injuries'
 
 const RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
 
@@ -158,8 +158,8 @@ function InjuriesView({ userId, trainerId, side }) {
   const pickedActive = picked ? active.filter(i => i.muscle_group === picked) : [];
   const openInjury = openId ? list.find(i => i.id === openId) : null;
 
-  const report = async (severity, note) => {
-    await reportInjury({ clientId: userId, trainerId, group: picked, side, severity, note });
+  const report = async (severity, note, laterality) => {
+    await reportInjury({ clientId: userId, trainerId, group: picked, side, severity, note, laterality });
     setReporting(false); reload();
   };
 
@@ -254,7 +254,7 @@ function InjuryRow({ inj, onOpen, resolved }) {
       }}>
         <Dot color={col} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{labelFor(inj.muscle_group)}</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{injuryTitle(inj)}</div>
           <Mono style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {SEV_LABEL[inj.severity]}{inj.note ? ` · ${inj.note}` : ''}
           </Mono>
@@ -271,20 +271,38 @@ function InjuryRow({ inj, onOpen, resolved }) {
 
 function ReportForm({ onCancel, onSave }) {
   const [severity, setSeverity] = React.useState('moderate');
+  const [laterality, setLaterality] = React.useState('both');
   const [note, setNote] = React.useState('');
   const [saving, setSaving] = React.useState(false);
   return (
     <div style={{ display: 'grid', gap: 10, marginBottom: 6 }}>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {['mild', 'moderate', 'severe'].map(s => (
-          <button key={s} onClick={() => setSeverity(s)} style={{
-            all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '8px 0', borderRadius: 8,
-            fontSize: 9, fontFamily: 'JetBrains Mono', fontWeight: 700, letterSpacing: '0.08em',
-            background: severity === s ? `color-mix(in srgb, ${SEV_COLOR[s]} 18%, var(--bg-3))` : 'var(--bg-3)',
-            border: `1px solid ${severity === s ? SEV_COLOR[s] : 'var(--line)'}`,
-            color: severity === s ? SEV_COLOR[s] : 'var(--text-3)',
-          }}>{SEV_LABEL[s]}</button>
-        ))}
+      <div>
+        <div className="label" style={{ marginBottom: 6 }}>SIDE</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['left', 'both', 'right'].map(s => (
+            <button key={s} onClick={() => setLaterality(s)} style={{
+              all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '8px 0', borderRadius: 8,
+              fontSize: 9, fontFamily: 'JetBrains Mono', fontWeight: 700, letterSpacing: '0.08em',
+              background: laterality === s ? 'var(--accent-soft)' : 'var(--bg-3)',
+              border: `1px solid ${laterality === s ? 'var(--accent)' : 'var(--line)'}`,
+              color: laterality === s ? 'var(--accent)' : 'var(--text-3)',
+            }}>{LAT_LABEL[s].toUpperCase()}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="label" style={{ marginBottom: 6 }}>SEVERITY</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['mild', 'moderate', 'severe'].map(s => (
+            <button key={s} onClick={() => setSeverity(s)} style={{
+              all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '8px 0', borderRadius: 8,
+              fontSize: 9, fontFamily: 'JetBrains Mono', fontWeight: 700, letterSpacing: '0.08em',
+              background: severity === s ? `color-mix(in srgb, ${SEV_COLOR[s]} 18%, var(--bg-3))` : 'var(--bg-3)',
+              border: `1px solid ${severity === s ? SEV_COLOR[s] : 'var(--line)'}`,
+              color: severity === s ? SEV_COLOR[s] : 'var(--text-3)',
+            }}>{SEV_LABEL[s]}</button>
+          ))}
+        </div>
       </div>
       <textarea value={note} onChange={e => setNote(e.target.value)} rows={3}
         placeholder="Describe how it feels, when it started, what aggravates it…"
@@ -295,7 +313,7 @@ function ReportForm({ onCancel, onSave }) {
         }}/>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} className="btn-ghost" style={{ flex: 1 }}>CANCEL</button>
-        <button onClick={async () => { if (saving) return; setSaving(true); await onSave(severity, note.trim()); }}
+        <button onClick={async () => { if (saving) return; setSaving(true); await onSave(severity, note.trim(), laterality); }}
           className="btn-primary" style={{ flex: 1 }}>{saving ? 'SAVING…' : 'REPORT'}</button>
       </div>
     </div>

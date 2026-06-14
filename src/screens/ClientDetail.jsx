@@ -6,6 +6,7 @@ import { Hex, HexBackButton } from '../components/hex'
 import { BodyMap } from './Progress'
 import { InjuryThread } from './InjuryThread'
 import { MUSCLE_BODY, REGION_LABELS } from '../data/musclePaths'
+import { injuryTitle } from '../lib/injuries'
 import { IconPlus, IconCheck, IconX2, IconChevronRight } from '../components/icons'
 
 // ── Constants ────────────────────────────────────────────────────
@@ -54,22 +55,12 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
             {c.managed ? '◉ AWAITING SIGN-UP' : c.phaseLabel.toUpperCase()}
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-          {!c.managed && (
-            <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'dashboard' }); }}
-              className="mono" style={{
-                all: 'unset', cursor: 'pointer', fontSize: 9, letterSpacing: '0.1em', textAlign: 'center',
-                color: 'var(--on-accent)', fontWeight: 700, padding: '6px 10px',
-                background: 'var(--accent)', borderRadius: 6,
-              }}>OPEN APP</button>
-          )}
-          <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'workouts' }); }}
-            className="mono" style={{
-              all: 'unset', cursor: 'pointer', fontSize: 9, letterSpacing: '0.1em', textAlign: 'center',
-              color: 'var(--accent)', fontWeight: 700, padding: '6px 10px',
-              border: '1px solid color-mix(in srgb, var(--accent) 60%, transparent)', borderRadius: 6,
-            }}>LOG SESSION</button>
-        </div>
+        <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'workouts' }); }}
+          className="mono" style={{
+            all: 'unset', cursor: 'pointer', fontSize: 9, letterSpacing: '0.12em', flexShrink: 0,
+            color: 'var(--accent)', fontWeight: 700, padding: '5px 10px',
+            border: '1px solid color-mix(in srgb, var(--accent) 60%, transparent)', borderRadius: 6,
+          }}>LOG SESSION</button>
       </div>
 
       {/* ── Tab bar ── */}
@@ -91,7 +82,7 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
 
       {/* ── Content ── */}
       <div className="scroller" style={{ flex: 1, minHeight: 0, padding: '14px 14px 40px' }}>
-        {tab === 'overview' && <OverviewTab  c={c} />}
+        {tab === 'overview' && <OverviewTab  c={c} go={go} onClose={onClose} onTab={setTab} />}
         {tab === 'training' && <TrainingTab  c={c} trainerId={trainerId} programmes={programmes} onChanged={onChanged} />}
         {tab === 'body'     && <BodyTab      c={c} trainerId={trainerId} />}
         {tab === 'data'     && <DataTab      c={c} trainerId={trainerId} />}
@@ -103,38 +94,131 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
   );
 }
 
-// ── OVERVIEW ─────────────────────────────────────────────────────
-function OverviewTab({ c }) {
-  const [sessions, setSessions] = React.useState(null);
+// ── OVERVIEW — at-a-glance client dashboard ──────────────────────
+function OverviewTab({ c, go, onClose, onTab }) {
+  const [d, setD] = React.useState(null);
+  const today = new Date().toISOString().slice(0, 10);
+
   React.useEffect(() => {
-    supabase.from('workout_sessions')
-      .select('id, started_at, finished_at')
-      .eq('client_id', c.id)
-      .order('started_at', { ascending: false })
-      .limit(6)
-      .then(({ data }) => setSessions(data || []));
+    let alive = true;
+    (async () => {
+      const [sessions, injuries, tasks, metric, next] = await Promise.all([
+        supabase.from('workout_sessions').select('id, started_at, completed_at')
+          .eq('client_id', c.id).order('started_at', { ascending: false }).limit(5),
+        supabase.from('client_injuries').select('id, muscle_group, laterality, severity').eq('client_id', c.id).is('resolved_at', null),
+        supabase.from('client_tasks').select('id').eq('client_id', c.id).is('completed_at', null),
+        supabase.from('body_metrics').select('weight_kg, recorded_at').eq('client_id', c.id)
+          .not('weight_kg', 'is', null).order('recorded_at', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('client_workouts')
+          .select('scheduled_date, programme_days(programme_phases(name, programmes(name)))')
+          .eq('client_id', c.id).gte('scheduled_date', today).eq('status', 'scheduled')
+          .order('scheduled_date').limit(1).maybeSingle(),
+      ]);
+      if (!alive) return;
+      setD({
+        sessions: sessions.data || [],
+        injuries: injuries.data || [],
+        openTasks: (tasks.data || []).length,
+        metric: metric.data || null,
+        next: next.data || null,
+      });
+    })();
+    return () => { alive = false; };
   }, [c.id]);
+
+  const next = d?.next;
+  const phase = next?.programme_days?.programme_phases;
+  const progLabel = phase ? [phase.programmes?.name, phase.name].filter(Boolean).join(' · ') : null;
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-        <KpiCard label="STREAK"     value={c.streak || 0}        unit="d"        color="var(--c-amber)" />
-        <KpiCard label="THIS WEEK"  value={c.sessionsThisWeek||0} unit="sessions" color="var(--accent)" />
-        <KpiCard label="LAST SEEN"  value={c.lastSeen || '—'}    color="var(--text-2)" />
+      {/* Assume control */}
+      {!c.managed ? (
+        <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'dashboard' }); }}
+          className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--heading-deep)' }}>
+          ◉ ASSUME CONTROL — OPEN CLIENT APP
+        </button>
+      ) : (
+        <div className="card" style={{ padding: 12, textAlign: 'center' }}>
+          <Mono>◉ AWAITING SIGN-UP — assume control unlocks once the client joins</Mono>
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+        <KpiCard label="STREAK"   value={c.streak || 0}          unit="d"   color="var(--c-amber)" />
+        <KpiCard label="THIS WK"  value={c.sessionsThisWeek || 0}            color="var(--accent)" />
+        <KpiCard label="CREDITS"  value={c.credits ?? 0}                     color="var(--accent-2)" />
+        <KpiCard label="INJURIES" value={d ? d.injuries.length : '—'}        color={d && d.injuries.length ? 'var(--c-coral)' : 'var(--text-2)'} />
       </div>
 
+      {/* Next session + programme */}
+      <div className="card" style={{ padding: 14 }}>
+        <div className="label" style={{ marginBottom: 6 }}>// NEXT SESSION</div>
+        {!d ? <Mono>LOADING…</Mono> : next ? (
+          <>
+            <div className="h-bold" style={{ fontSize: 15 }}>
+              {next.scheduled_date === today ? 'TODAY' : new Date(next.scheduled_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}
+            </div>
+            {progLabel && <Mono style={{ marginTop: 4 }}>{progLabel.toUpperCase()}</Mono>}
+          </>
+        ) : <Mono>No upcoming sessions scheduled</Mono>}
+      </div>
+
+      {/* Quick stats row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <button onClick={() => onTab('data')} style={{ all: 'unset', cursor: 'pointer' }}>
+          <div className="card" style={{ padding: 12, height: '100%', boxSizing: 'border-box' }}>
+            <div className="label" style={{ marginBottom: 6 }}>LATEST WEIGH-IN</div>
+            {d?.metric ? (
+              <>
+                <div className="h-bold" style={{ fontSize: 18 }}>{d.metric.weight_kg}<span style={{ fontSize: 10, color: 'var(--text-3)' }}>kg</span></div>
+                <Mono style={{ marginTop: 2 }}>{new Date(d.metric.recorded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Mono>
+              </>
+            ) : <Mono>No data</Mono>}
+          </div>
+        </button>
+        <button onClick={() => onTab('tasks')} style={{ all: 'unset', cursor: 'pointer' }}>
+          <div className="card" style={{ padding: 12, height: '100%', boxSizing: 'border-box' }}>
+            <div className="label" style={{ marginBottom: 6 }}>OPEN TASKS</div>
+            <div className="h-bold" style={{ fontSize: 18, color: d?.openTasks ? 'var(--c-amber)' : 'var(--text)' }}>{d ? d.openTasks : '—'}</div>
+            <Mono style={{ marginTop: 2 }}>tap to manage</Mono>
+          </div>
+        </button>
+      </div>
+
+      {/* Active injuries */}
+      {d && d.injuries.length > 0 && (
+        <button onClick={() => onTab('body')} style={{ all: 'unset', cursor: 'pointer' }}>
+          <div className="card" style={{ padding: 12, borderColor: 'color-mix(in srgb, var(--c-coral) 35%, var(--line))' }}>
+            <div className="label" style={{ marginBottom: 8, color: 'var(--c-coral)' }}>// ACTIVE INJURIES · {d.injuries.length}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {d.injuries.slice(0, 6).map(inj => (
+                <span key={inj.id} className="mono" style={{
+                  fontSize: 9, fontWeight: 700, padding: '4px 8px', borderRadius: 999,
+                  color: SEV_COLOR[inj.severity],
+                  background: `color-mix(in srgb, ${SEV_COLOR[inj.severity]} 12%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${SEV_COLOR[inj.severity]} 35%, transparent)`,
+                }}>{injuryTitle(inj)}</span>
+              ))}
+            </div>
+          </div>
+        </button>
+      )}
+
+      {/* Recent sessions */}
       <div className="label">// RECENT SESSIONS</div>
-      {sessions === null && <Mono>LOADING…</Mono>}
-      {sessions?.length === 0 && <EmptyState>No sessions logged yet</EmptyState>}
-      {sessions?.map(s => {
-        const dur = s.finished_at ? Math.round((new Date(s.finished_at) - new Date(s.started_at)) / 60000) : null;
+      {!d && <Mono>LOADING…</Mono>}
+      {d && d.sessions.length === 0 && <EmptyState>No sessions logged yet</EmptyState>}
+      {d?.sessions.map(s => {
+        const dur = s.completed_at ? Math.round((new Date(s.completed_at) - new Date(s.started_at)) / 60000) : null;
         return (
           <div key={s.id} className="card" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>
               {new Date(s.started_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
             </span>
             <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)' }}>
-              {dur ? `${dur} MIN` : 'IN PROGRESS'} <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>
+              {dur != null ? `${dur} MIN` : 'IN PROGRESS'}{s.completed_at && <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>}
             </span>
           </div>
         );
@@ -376,10 +460,10 @@ function BodyTab({ c, trainerId }) {
           {editPanel && (
             <InjuryForm
               group={editPanel.group} side={side}
-              onSave={async (note, severity) => {
+              onSave={async (note, severity, laterality) => {
                 await supabase.from('client_injuries').insert({
                   client_id: c.id, trainer_id: trainerId,
-                  muscle_group: editPanel.group, body_side: side, note, severity,
+                  muscle_group: editPanel.group, body_side: side, note, severity, laterality,
                 });
                 setEditPanel(null); reload();
               }}
@@ -425,7 +509,7 @@ function InjuryRow({ inj, onOpen, resolved }) {
       }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }}/>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{regionLabel(inj.muscle_group)}</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{injuryTitle(inj)}</div>
           <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {SEV_LABEL[inj.severity]}{inj.note ? ` · ${inj.note}` : ''}
           </div>
@@ -443,30 +527,48 @@ function InjuryRow({ inj, onOpen, resolved }) {
 function InjuryForm({ group, side, onSave, onClose }) {
   const [note, setNote]         = React.useState('');
   const [severity, setSeverity] = React.useState('moderate');
+  const [laterality, setLaterality] = React.useState('both');
   const [saving, setSaving]     = React.useState(false);
   return (
     <div className="card" style={{ padding: 14, border: '1px solid var(--c-coral)', display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div className="label">// ADD INJURY NOTE — {group?.toUpperCase()}</div>
+        <div className="label">// REPORT INJURY — {regionLabel(group).toUpperCase()}</div>
         <button onClick={onClose} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)' }}><IconX2 size={14}/></button>
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {['mild','moderate','severe'].map(s => (
-          <button key={s} onClick={() => setSeverity(s)} style={{
-            all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center',
-            padding: '8px 0', borderRadius: 8, fontSize: 9,
-            fontFamily: 'JetBrains Mono', fontWeight: 700, letterSpacing: '0.08em',
-            background: severity === s ? `color-mix(in srgb, ${SEV_COLOR[s]} 18%, var(--bg-3))` : 'var(--bg-3)',
-            border: `1px solid ${severity === s ? SEV_COLOR[s] : 'var(--line)'}`,
-            color: severity === s ? SEV_COLOR[s] : 'var(--text-3)',
-          }}>{SEV_LABEL[s]}</button>
-        ))}
+      <div>
+        <div className="label" style={{ marginBottom: 6 }}>SIDE</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['left','LEFT'],['both','BOTH'],['right','RIGHT']].map(([v, l]) => (
+            <button key={v} onClick={() => setLaterality(v)} style={{
+              all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '8px 0', borderRadius: 8, fontSize: 9,
+              fontFamily: 'JetBrains Mono', fontWeight: 700, letterSpacing: '0.08em',
+              background: laterality === v ? 'var(--accent-soft)' : 'var(--bg-3)',
+              border: `1px solid ${laterality === v ? 'var(--accent)' : 'var(--line)'}`,
+              color: laterality === v ? 'var(--accent)' : 'var(--text-3)',
+            }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="label" style={{ marginBottom: 6 }}>SEVERITY</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['mild','moderate','severe'].map(s => (
+            <button key={s} onClick={() => setSeverity(s)} style={{
+              all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center',
+              padding: '8px 0', borderRadius: 8, fontSize: 9,
+              fontFamily: 'JetBrains Mono', fontWeight: 700, letterSpacing: '0.08em',
+              background: severity === s ? `color-mix(in srgb, ${SEV_COLOR[s]} 18%, var(--bg-3))` : 'var(--bg-3)',
+              border: `1px solid ${severity === s ? SEV_COLOR[s] : 'var(--line)'}`,
+              color: severity === s ? SEV_COLOR[s] : 'var(--text-3)',
+            }}>{SEV_LABEL[s]}</button>
+          ))}
+        </div>
       </div>
       <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the injury or limitation…"
         rows={3} style={{ ...fieldSt, resize: 'vertical' }}/>
-      <button onClick={async () => { if (!note.trim() || saving) return; setSaving(true); await onSave(note.trim(), severity); }} disabled={!note.trim() || saving}
+      <button onClick={async () => { if (!note.trim() || saving) return; setSaving(true); await onSave(note.trim(), severity, laterality); }} disabled={!note.trim() || saving}
         className="btn-primary" style={{ opacity: note.trim() ? 1 : 0.4 }}>
-        {saving ? 'SAVING…' : 'SAVE NOTE'}
+        {saving ? 'SAVING…' : 'SAVE INJURY'}
       </button>
     </div>
   );

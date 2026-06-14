@@ -1,9 +1,7 @@
 import React from 'react'
-import { REGION_LABELS } from '../data/musclePaths'
 import { IconPlus, IconCheck, IconChevronLeft } from '../components/icons'
-import { SEV_COLOR, SEV_LABEL, loadInjuryNotes, addInjuryNote, resolveInjury, reopenInjury } from '../lib/injuries'
+import { SEV_COLOR, SEV_LABEL, injuryTitle, loadInjuryNotes, addInjuryNote, resolveInjury, reopenInjury } from '../lib/injuries'
 
-const labelFor = (g) => REGION_LABELS[g] || (g || '').replace(/([A-Z])/g, ' $1').trim();
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
 // Reusable injury detail: a note thread with "add note" and resolve/reopen.
@@ -53,7 +51,7 @@ export function InjuryThread({ injury, authorId, onBack, onChanged }) {
           width: 28, height: 28, borderRadius: 7, background: 'var(--bg-3)', border: '1px solid var(--line)', color: 'var(--text-2)',
         }}><IconChevronLeft size={14}/></button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="h-bold" style={{ fontSize: 15 }}>{labelFor(injury.muscle_group).toUpperCase()}</div>
+          <div className="h-bold" style={{ fontSize: 15 }}>{injuryTitle(injury).toUpperCase()}</div>
           <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 2 }}>
             {(injury.body_side || 'front').toUpperCase()} · REPORTED {fmtDate(injury.created_at)}
           </div>

@@ -1,8 +1,16 @@
 import { supabase } from './supabase'
+import { REGION_LABELS } from '../data/musclePaths'
 
 export const SEV_COLOR = { mild: 'var(--c-amber)', moderate: 'var(--c-coral)', severe: '#d93434' };
 export const SEV_LABEL = { mild: 'MILD', moderate: 'MODERATE', severe: 'SEVERE' };
 export const SEV_VAL   = { mild: 0.35, moderate: 0.65, severe: 1.0 };
+export const LAT_LABEL = { left: 'Left', right: 'Right', both: 'Both' };
+
+// "Left Knee", "Right Biceps", or just "Abs" when bilateral.
+export function injuryTitle(inj) {
+  const base = REGION_LABELS[inj.muscle_group] || (inj.muscle_group || '').replace(/([A-Z])/g, ' $1').trim();
+  return inj.laterality && inj.laterality !== 'both' ? `${LAT_LABEL[inj.laterality]} ${base}` : base;
+}
 
 export async function loadInjuries(clientId) {
   const { data } = await supabase
@@ -13,12 +21,13 @@ export async function loadInjuries(clientId) {
   return data || [];
 }
 
-export async function reportInjury({ clientId, trainerId, group, side, severity, note }) {
+export async function reportInjury({ clientId, trainerId, group, side, severity, note, laterality }) {
   const { data } = await supabase
     .from('client_injuries')
     .insert({
       client_id: clientId, trainer_id: trainerId || null,
       muscle_group: group, body_side: side, severity, note: note || '',
+      laterality: laterality || 'both',
     })
     .select('id').single();
   return data?.id;
