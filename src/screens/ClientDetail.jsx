@@ -1,6 +1,7 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
 import { loadMuscleVolume } from '../lib/muscleVolume'
+import { loadExerciseMuscleMap } from '../lib/exercises'
 import { loadPhotoHistory } from '../lib/progressPhotos'
 import { Hex, HexBackButton } from '../components/hex'
 import { BodyMap } from './Progress'
@@ -332,7 +333,7 @@ function BodyTab({ c, trainerId }) {
 
   React.useEffect(() => {
     if (mode === 'worked' && volume === null) {
-      loadMuscleVolume(c.id, 30).then(setVolume);
+      loadExerciseMuscleMap().then(map => loadMuscleVolume(c.id, 30, map)).then(setVolume);
     }
   }, [mode, volume, c.id]);
 
@@ -349,11 +350,12 @@ function BodyTab({ c, trainerId }) {
   const resolvedInjuries = React.useMemo(() => injuries.filter(inj => inj.resolved_at), [injuries]);
   const openInjury = openId ? injuries.find(inj => inj.id === openId) : null;
 
-  const injuryIntensity = React.useCallback((group) => {
-    const inGroup = activeInjuries.filter(inj => inj.muscle_group === group);
-    if (!inGroup.length) return 0;
-    const sevVal = { mild: 0.35, moderate: 0.65, severe: 1.0 };
-    return Math.max(...inGroup.map(inj => sevVal[inj.severity] || 0.5));
+  const sevVal = { mild: 0.35, moderate: 0.65, severe: 1.0 };
+  // Per-side injury intensity: a side lights only if matched (or bilateral).
+  const injuryIntensity = React.useCallback((group, anat) => {
+    const hits = activeInjuries.filter(inj => inj.muscle_group === group && (inj.laterality === anat || inj.laterality === 'both'));
+    if (!hits.length) return 0;
+    return Math.max(...hits.map(inj => sevVal[inj.severity] || 0.5));
   }, [activeInjuries]);
 
   const workedData = volume || {};
@@ -364,7 +366,10 @@ function BodyTab({ c, trainerId }) {
   );
 
   const isInjuryMode = mode === 'injuries';
-  const pickedInjuries = picked ? activeInjuries.filter(inj => inj.muscle_group === picked) : [];
+  const [pickedGroup, pickedSide] = picked && isInjuryMode ? picked.split('|') : [picked, null];
+  const pickedInjuries = pickedGroup
+    ? activeInjuries.filter(inj => inj.muscle_group === pickedGroup && (inj.laterality === pickedSide || inj.laterality === 'both'))
+    : [];
   const pickedVolume = picked ? workedData[picked] : null;
 
   return (
@@ -389,8 +394,12 @@ function BodyTab({ c, trainerId }) {
         intensity={isInjuryMode ? injuryIntensity : workedIntensity}
         picked={picked}
         slugMap={isInjuryMode ? injurySlugMap : undefined}
+        perSide={isInjuryMode}
+        zoomable
         labels={REGION_LABELS}
-        onPick={group => { setPicked(group === picked ? null : group); setEditPanel(null); setOpenId(null); }}
+        onPick={isInjuryMode
+          ? (group, anat) => { const key = `${group}|${anat}`; setPicked(picked === key ? null : key); setEditPanel(null); setOpenId(null); }
+          : (group) => { setPicked(group === picked ? null : group); setEditPanel(null); setOpenId(null); }}
         heatColor={isInjuryMode ? 'var(--c-coral)' : 'var(--accent)'}
       />
 
@@ -423,7 +432,7 @@ function BodyTab({ c, trainerId }) {
       {/* Selected muscle — trained volume panel */}
       {!isInjuryMode && picked && pickedVolume && (
         <div className="card" style={{ padding: 14, borderColor: 'color-mix(in srgb, var(--accent) 40%, var(--line))' }}>
-          <div className="h-bold" style={{ fontSize: 14, marginBottom: 10 }}>{picked.replace(/([A-Z])/g, ' $1').trim().toUpperCase()}</div>
+          <div className="h-bold" style={{ fontSize: 14, marginBottom: 10 }}>{regionLabel(picked).toUpperCase()}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             <KpiCard label="SETS"   value={pickedVolume.sets}   color="var(--accent)" />
             <KpiCard label="REPS"   value={pickedVolume.reps}   color="var(--accent)" />
@@ -440,16 +449,18 @@ function BodyTab({ c, trainerId }) {
       )}
 
       {/* Selected region panel */}
-      {isInjuryMode && !openInjury && picked && (
+      {isInjuryMode && !openInjury && pickedGroup && (
         <div className="card" style={{
           padding: 14,
           borderColor: 'color-mix(in srgb, var(--c-coral) 40%, var(--line))',
           background: 'color-mix(in srgb, var(--c-coral) 6%, var(--bg-2))',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div className="h-bold" style={{ fontSize: 14 }}>{regionLabel(picked).toUpperCase()}</div>
+            <div className="h-bold" style={{ fontSize: 14 }}>
+              {(pickedSide === 'both' ? '' : `${pickedSide} `).toUpperCase()}{regionLabel(pickedGroup).toUpperCase()}
+            </div>
             {!editPanel && (
-              <button onClick={() => setEditPanel({ group: picked })} style={{
+              <button onClick={() => setEditPanel({ group: pickedGroup, side: pickedSide })} style={{
                 all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
                 fontSize: 9, color: 'var(--c-coral)', fontFamily: 'JetBrains Mono', fontWeight: 700,
                 border: '1px solid color-mix(in srgb, var(--c-coral) 50%, transparent)', borderRadius: 6, padding: '4px 8px',
@@ -459,7 +470,7 @@ function BodyTab({ c, trainerId }) {
 
           {editPanel && (
             <InjuryForm
-              group={editPanel.group} side={side}
+              group={editPanel.group} side={side} defaultSide={editPanel.side}
               onSave={async (note, severity, laterality) => {
                 await supabase.from('client_injuries').insert({
                   client_id: c.id, trainer_id: trainerId,
@@ -524,10 +535,10 @@ function InjuryRow({ inj, onOpen, resolved }) {
   );
 }
 
-function InjuryForm({ group, side, onSave, onClose }) {
+function InjuryForm({ group, side, onSave, onClose, defaultSide }) {
   const [note, setNote]         = React.useState('');
   const [severity, setSeverity] = React.useState('moderate');
-  const [laterality, setLaterality] = React.useState('both');
+  const [laterality, setLaterality] = React.useState(defaultSide || 'both');
   const [saving, setSaving]     = React.useState(false);
   return (
     <div className="card" style={{ padding: 14, border: '1px solid var(--c-coral)', display: 'grid', gap: 10 }}>

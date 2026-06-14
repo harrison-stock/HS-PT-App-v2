@@ -1,7 +1,9 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
 import { loadMuscleVolume } from '../lib/muscleVolume'
+import { loadExerciseMuscleMap } from '../lib/exercises'
 import { loadPhotoHistory, uploadProgressPhoto, deleteProgressPhoto } from '../lib/progressPhotos'
+import { ZoomPan } from '../components/ZoomPan'
 import { MUSCLE_LABELS, EXERCISE_HISTORY, EXERCISE_CATEGORIES } from '../data/index'
 import { MUSCLE_BODY } from '../data/musclePaths'
 import { HexBackButton, Hex, HexShape } from '../components/hex'
@@ -982,7 +984,7 @@ function MuscleMapView({ range, userId }) {
     if (!userId) { setData({}); return; }
     setData(null);
     setPicked(null);
-    loadMuscleVolume(userId, days).then(setData);
+    loadExerciseMuscleMap().then(map => loadMuscleVolume(userId, days, map)).then(setData);
   }, [userId, days]);
 
   const labels = MUSCLE_LABELS;
@@ -1121,10 +1123,11 @@ function DetailStat({ label, value, color }) {
 // ── BODY MAP SVG ─────────────────────────────────────────────────
 // Stylized anterior/posterior figure. Each region is a path that's
 // filled with accent color at intensity-based opacity.
-export function BodyMap({ side, intensity, picked, onPick, data, labels, heatColor, slugMap }) {
+export function BodyMap({ side, intensity, picked, onPick, data, labels, heatColor, slugMap, perSide, zoomable }) {
   const body = MUSCLE_BODY[side];
   if (!body) return null;
   const vb = body.viewBox.split(' ').map(Number);
+  const centerX = vb[0] + vb[2] / 2;
 
   // slug -> heat group reverse lookup for this side. `slugMap` lets callers
   // (e.g. the injury map) widen the set of selectable regions to joints.
@@ -1135,60 +1138,87 @@ export function BodyMap({ side, intensity, picked, onPick, data, labels, heatCol
     return m;
   }, [side, slugMap]);
 
-  // Default heat colour (green) for every worked muscle; the picked muscle
-  // pops in its own zone colour as a highlight.
+  // Anatomical side of a path from its first move-to x. On the front view the
+  // viewer's left is the subject's right (and vice-versa); flipped on the back.
+  const anatOf = (d) => {
+    const m = /m\s*(-?[\d.]+)/i.exec(d);
+    const x = m ? parseFloat(m[1]) : centerX;
+    if (side === 'front') return x < centerX ? 'right' : 'left';
+    return x < centerX ? 'left' : 'right';
+  };
+
   const baseColor = heatColor || 'var(--accent)';
   const colorFor = (group, isPicked) => isPicked ? (MUSCLE_COLOR[group] || 'var(--accent-2)') : (heatColor ? baseColor : (MUSCLE_COLOR[group] || 'var(--accent)'));
-  const fillFor = (group, isPicked) => {
-    const v = intensity(group);
+  const fillFor = (group, v, isPicked) => {
     const alpha = 0.12 + v * 0.82;
     return `color-mix(in srgb, ${colorFor(group, isPicked)} ${Math.round(alpha * 100)}%, var(--bg-3))`;
   };
+  const neutralStroke = 'color-mix(in srgb, var(--text-3) 24%, transparent)';
   const neutralFill = 'color-mix(in srgb, var(--text-3) 14%, var(--bg-3))';
+
+  const svg = (
+    <svg viewBox={body.viewBox} width="100%"
+    style={{ display: 'block', height: 440, maxWidth: '100%', margin: '0 auto' }}>
+      <defs>
+        <radialGradient id="bm-glow" cx="50%" cy="40%" r="58%">
+          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.12" />
+          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      {/* Subtle backdrop glow */}
+      <rect x={vb[0]} y={vb[1]} width={vb[2]} height={vb[3]} fill="url(#bm-glow)" />
+
+      {/* Anatomical regions — neutral structure first, heat muscles on top */}
+      {(MUSCLE_BODY.order[side] || Object.keys(body.parts)).map((slug) => {
+        const paths = body.parts[slug];
+        if (!paths) return null;
+        const group = slugToGroup[slug];
+        const isHeat = !!group && !!data[group];
+
+        if (!isHeat) {
+          return (
+            <g key={slug}>
+              {paths.map((d, i) => <path key={i} d={d} fill={neutralFill} stroke={neutralStroke} strokeWidth={1} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
+            </g>
+          );
+        }
+
+        // Per-side: each path is independently shaded + selectable by limb side.
+        if (perSide) {
+          return paths.map((d, i) => {
+            const anat = anatOf(d);
+            const v = intensity(group, anat);
+            const isP = picked === `${group}|${anat}`;
+            return (
+              <path key={slug + i} d={d}
+                onClick={() => onPick(group, anat)}
+                fill={fillFor(group, v, isP)}
+                stroke={isP ? colorFor(group, true) : `color-mix(in srgb, ${colorFor(group, false)} 45%, transparent)`}
+                strokeWidth={isP ? 2.4 : 1} strokeLinejoin="round" vectorEffect="non-scaling-stroke"
+                style={{ cursor: 'pointer', filter: isP ? `drop-shadow(0 0 7px ${colorFor(group, true)})` : 'none', transition: 'all .15s ease' }} />
+            );
+          });
+        }
+
+        // Grouped (whole-muscle) behaviour.
+        const isPicked = picked === group;
+        const v = intensity(group);
+        const fill = fillFor(group, v, isPicked);
+        const stroke = isPicked ? colorFor(group, true) : `color-mix(in srgb, ${colorFor(group, false)} 45%, transparent)`;
+        return (
+          <g key={slug}
+          onClick={() => onPick(picked === group ? null : group)}
+          style={{ cursor: 'pointer', filter: isPicked ? `drop-shadow(0 0 7px ${colorFor(group, true)})` : 'none', transition: 'all .2s ease' }}>
+            {paths.map((d, i) => <path key={i} d={d} fill={fill} stroke={stroke} strokeWidth={isPicked ? 2.4 : 1} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
+          </g>);
+      })}
+    </svg>
+  );
 
   return (
     <div style={{ position: 'relative', width: '100%' }}>
-      <svg viewBox={body.viewBox} width="100%"
-      style={{ display: 'block', height: 440, maxWidth: '100%', margin: '0 auto' }}>
-        <defs>
-          <radialGradient id="bm-glow" cx="50%" cy="40%" r="58%">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.12" />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-
-        {/* Subtle backdrop glow */}
-        <rect x={vb[0]} y={vb[1]} width={vb[2]} height={vb[3]} fill="url(#bm-glow)" />
-
-        {/* Anatomical regions — neutral structure first, heat muscles on top */}
-        {(MUSCLE_BODY.order[side] || Object.keys(body.parts)).map((slug) => {
-          const paths = body.parts[slug];
-          if (!paths) return null;
-          const group = slugToGroup[slug];
-          const isHeat = !!group && !!data[group];
-          const isPicked = isHeat && picked === group;
-          const fill = isHeat ? fillFor(group, isPicked) : neutralFill;
-          const stroke = isPicked ?
-          colorFor(group, true) :
-          isHeat ? `color-mix(in srgb, ${colorFor(group, false)} 45%, transparent)` :
-          'color-mix(in srgb, var(--text-3) 24%, transparent)';
-          return (
-            <g key={slug}
-            onClick={isHeat ? () => onPick(picked === group ? null : group) : undefined}
-            style={{
-              cursor: isHeat ? 'pointer' : 'default',
-              filter: isPicked ? `drop-shadow(0 0 7px ${colorFor(group, true)})` : 'none',
-              transition: 'all .2s ease'
-            }}>
-              {paths.map((d, i) =>
-              <path key={i} d={d} fill={fill} stroke={stroke}
-              strokeWidth={isPicked ? 2.4 : 1}
-              strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-              )}
-            </g>);
-
-        })}
-      </svg>
+      {zoomable ? <ZoomPan>{svg}</ZoomPan> : svg}
 
       {/* HUD label, top-left */}
       <div style={{

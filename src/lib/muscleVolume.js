@@ -38,7 +38,7 @@ function humanizeDays(iso) {
 // Aggregates completed-session set volume per muscle group over the last
 // `rangeDays` days. Returns { group: { sets, reps, kg, sessions, lastWorked } }
 // containing only groups that were actually worked.
-export async function loadMuscleVolume(clientId, rangeDays) {
+export async function loadMuscleVolume(clientId, rangeDays, nameMuscleMap) {
   const since = new Date(Date.now() - rangeDays * 86_400_000).toISOString();
   const { data: sessions } = await supabase
     .from('workout_sessions')
@@ -50,7 +50,9 @@ export async function loadMuscleVolume(clientId, rangeDays) {
   const agg = {};
   for (const sess of (sessions || [])) {
     for (const ls of (sess.logged_sets || [])) {
-      const groups = muscleGroupsFor(ls.section_exercises?.name);
+      const nm = (ls.section_exercises?.name || '').trim().toLowerCase();
+      // Prefer the coach's library "muscles worked"; fall back to name heuristics.
+      const groups = (nameMuscleMap && nameMuscleMap[nm]) || muscleGroupsFor(ls.section_exercises?.name);
       const w = parseFloat(ls.actual_weight_kg) || 0;
       const r = ls.actual_reps || 0;
       for (const g of groups) {

@@ -2,6 +2,7 @@ import React from 'react'
 import { supabase } from '../lib/supabase'
 import { HexBackButton, HexShape } from '../components/hex'
 import { IconChevronRight } from '../components/icons'
+import { loadExercises, videoThumb } from '../lib/exercises'
 
 const IMG_FALLBACK = 'https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=200&q=70';
 const TAGS = ['STRENGTH','ONBOARD','REHAB','ENDURANCE','HYBRID','SPORT'];
@@ -987,9 +988,22 @@ const EXERCISE_LIBRARY = [
 
 function ExercisePicker({ onClose, onPick }) {
   const [query, setQuery] = React.useState('');
+  const [lib, setLib] = React.useState(null);
+
+  React.useEffect(() => {
+    loadExercises().then(rows => setLib(rows.map(e => ({
+      name: e.name,
+      img: e.thumbnail_url || videoThumb(e.video_url) || (e.photos && e.photos[0]) || IMG_FALLBACK,
+      cat: (e.muscle_group || 'OTHER').toUpperCase(),
+    }))));
+  }, []);
+
+  // Prefer the coach's real library; fall back to the built-in list while
+  // loading or if the library is empty.
+  const base = (lib && lib.length) ? lib : EXERCISE_LIBRARY;
   const filtered = query.trim()
-    ? EXERCISE_LIBRARY.filter(e => e.name.toLowerCase().includes(query.toLowerCase()))
-    : EXERCISE_LIBRARY;
+    ? base.filter(e => e.name.toLowerCase().includes(query.toLowerCase()))
+    : base;
   const cats = [...new Set(filtered.map(e => e.cat))];
 
   return (

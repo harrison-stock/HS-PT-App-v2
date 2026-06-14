@@ -1,25 +1,25 @@
 import React from 'react'
-import { GUIDES_SEED } from '../data/index'
 import { loadRecipes, scaleQty, fmtQty } from '../lib/recipes'
+import { loadGuides } from '../lib/guides'
 import { RecipeBuilder } from './RecipeBuilder'
+import { GuideBuilder } from './GuideBuilder'
 import { HEX_RATIO, HEX_PATH, HexShape, Hex, HexBackButton } from '../components/hex'
 import { IconHeart, IconFlame, IconBolt, IconClock, IconChevronRight, IconPlus, IconCamera2, IconPlay, IconCheck } from '../components/icons'
 
-// Resources — recipes & guides. Coaches build/edit recipes here.
+// Resources — recipes & guides. Coaches build/edit both here.
 export function Resources({ go, userId, isTrainer }) {
   const [tab, setTab] = React.useState('recipes');
   const [recipes, setRecipes] = React.useState(null);   // null = loading
-  const [guides, setGuides] = React.useState(GUIDES_SEED);
-  const [adding, setAdding] = React.useState(false);
+  const [guides, setGuides] = React.useState(null);
   const [builderRecipe, setBuilderRecipe] = React.useState(undefined); // undefined=closed, null=new, obj=edit
+  const [builderGuide, setBuilderGuide] = React.useState(undefined);
   const [query, setQuery] = React.useState('');
   const [openRecipe, setOpenRecipe] = React.useState(null);
   const [favs, setFavs] = React.useState(() => new Set());
 
-  const refreshRecipes = React.useCallback(() => {
-    loadRecipes().then(setRecipes);
-  }, []);
-  React.useEffect(() => { refreshRecipes(); }, [refreshRecipes]);
+  const refreshRecipes = React.useCallback(() => { loadRecipes().then(setRecipes); }, []);
+  const refreshGuides  = React.useCallback(() => { loadGuides().then(setGuides); }, []);
+  React.useEffect(() => { refreshRecipes(); refreshGuides(); }, [refreshRecipes, refreshGuides]);
 
   const toggleFav = (id) => setFavs((prev) => {
     const next = new Set(prev);
@@ -27,18 +27,20 @@ export function Resources({ go, userId, isTrainer }) {
     return next;
   });
 
-  const addItem = (item) => {
-    setGuides((prev) => [{ ...item, id: 'g' + Date.now() }, ...prev]);
-    setAdding(false);
+  const openGuide = (g) => {
+    const url = g.video || g.link;
+    if (url) window.open(url, '_blank', 'noopener');
   };
 
   const recipeList = recipes || [];
+  const guideList  = guides || [];
 
-  const sourceList = tab === 'guides' ? guides :
+  const sourceList = tab === 'guides' ? guideList :
   tab === 'favourites' ? recipeList.filter((r) => favs.has(r.id)) :
   recipeList;
   const filtered = sourceList.filter((x) => x.title.toLowerCase().includes(query.toLowerCase()));
   const recipesLoading = recipes === null;
+  const guidesLoading  = guides === null;
 
   if (builderRecipe !== undefined) {
     return (
@@ -47,6 +49,16 @@ export function Resources({ go, userId, isTrainer }) {
         recipe={builderRecipe}
         onClose={() => setBuilderRecipe(undefined)}
         onSaved={() => { setBuilderRecipe(undefined); refreshRecipes(); }}
+      />
+    );
+  }
+  if (builderGuide !== undefined) {
+    return (
+      <GuideBuilder
+        trainerId={userId}
+        guide={builderGuide}
+        onClose={() => setBuilderGuide(undefined)}
+        onSaved={(keepOpen) => { refreshGuides(); if (!keepOpen) setBuilderGuide(undefined); }}
       />
     );
   }
@@ -97,14 +109,20 @@ export function Resources({ go, userId, isTrainer }) {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <ResTab active={tab === 'recipes' || tab === 'favourites'} onClick={() => setTab('recipes')} icon={<IconFlame size={14} />} label={`RECIPES · ${recipesLoading ? '…' : recipeList.length}`} />
-        <ResTab active={tab === 'guides'} onClick={() => setTab('guides')} icon={<IconBolt size={14} />} label={`GUIDES · ${guides.length}`} />
+        <ResTab active={tab === 'guides'} onClick={() => setTab('guides')} icon={<IconBolt size={14} />} label={`GUIDES · ${guidesLoading ? '…' : guideList.length}`} />
       </div>
 
-      {/* Coach: new recipe */}
+      {/* Coach: new recipe / guide */}
       {isTrainer && (tab === 'recipes' || tab === 'favourites') &&
       <button onClick={() => setBuilderRecipe(null)} className="btn-primary"
         style={{ width: '100%', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--heading-deep)' }}>
         <IconPlus size={14} /> NEW RECIPE
+      </button>
+      }
+      {isTrainer && tab === 'guides' &&
+      <button onClick={() => setBuilderGuide(null)} className="btn-primary"
+        style={{ width: '100%', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--heading-deep)' }}>
+        <IconPlus size={14} /> NEW GUIDE
       </button>
       }
 
@@ -130,17 +148,27 @@ export function Resources({ go, userId, isTrainer }) {
           </div>}
         </div>
       }
-      {tab === 'guides' &&
+      {tab === 'guides' && guidesLoading &&
+      <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>LOADING…</div>
+      }
+      {tab === 'guides' && !guidesLoading &&
       <div style={{ display: 'grid', gap: 10 }}>
-          {filtered.map((g) => <GuideCard key={g.id} g={g} isFav={favs.has(g.id)} onToggleFav={() => toggleFav(g.id)} />)}
+          {filtered.map((g) => <GuideCard key={g.id} g={g} isFav={favs.has(g.id)} onToggleFav={() => toggleFav(g.id)} onEdit={isTrainer ? () => setBuilderGuide(g) : null} onOpen={() => openGuide(g)} />)}
+          {guideList.length === 0 &&
+          <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+            <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', lineHeight: 1.7 }}>
+              NO GUIDES YET<br/>
+              <span style={{ fontSize: 9 }}>{isTrainer ? 'Tap NEW GUIDE to add one' : 'Your coach hasn’t added any guides yet'}</span>
+            </div>
+          </div>}
         </div>
       }
       {tab === 'favourites' &&
       <div style={{ display: 'grid', gap: 10 }}>
           {recipeList.filter((r) => favs.has(r.id) && r.title.toLowerCase().includes(query.toLowerCase()))
             .map((r) => <RecipeCard key={r.id} r={r} onOpen={() => setOpenRecipe(r)} isFav={true} onToggleFav={() => toggleFav(r.id)} onEdit={isTrainer ? () => setBuilderRecipe(r) : null} />)}
-          {guides.filter((g) => favs.has(g.id) && g.title.toLowerCase().includes(query.toLowerCase()))
-            .map((g) => <GuideCard key={g.id} g={g} isFav={true} onToggleFav={() => toggleFav(g.id)} />)}
+          {guideList.filter((g) => favs.has(g.id) && g.title.toLowerCase().includes(query.toLowerCase()))
+            .map((g) => <GuideCard key={g.id} g={g} isFav={true} onToggleFav={() => toggleFav(g.id)} onEdit={isTrainer ? () => setBuilderGuide(g) : null} onOpen={() => openGuide(g)} />)}
         </div>
       }
 
@@ -160,7 +188,6 @@ export function Resources({ go, userId, isTrainer }) {
         </div>
       }
 
-      {adding && <AddSheet kind={tab} onClose={() => setAdding(false)} onAdd={addItem} />}
       {openRecipe && <RecipeDetail r={openRecipe} onClose={() => setOpenRecipe(null)}
       isFav={favs.has(openRecipe.id)} onToggleFav={() => toggleFav(openRecipe.id)}
       onEdit={isTrainer ? () => { setOpenRecipe(null); setBuilderRecipe(openRecipe); } : null} />}
@@ -246,10 +273,10 @@ function Macro({ v, l, c }) {
 
 }
 
-function GuideCard({ g, isFav, onToggleFav }) {
+function GuideCard({ g, isFav, onToggleFav, onEdit, onOpen }) {
   const kindColor = g.kind === 'VIDEO' ? 'var(--pink)' : g.kind === 'GUIDE' ? 'var(--accent)' : 'var(--purple)';
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', position: 'relative' }}>
+    <div className="card" onClick={onOpen} style={{ padding: 0, overflow: 'hidden', display: 'flex', position: 'relative', cursor: onOpen ? 'pointer' : 'default' }}>
       <div style={{
         width: 88, flexShrink: 0,
         background: `linear-gradient(135deg, transparent, rgba(0,0,0,0.5)), url('${g.img}') center/cover, var(--bg-3)`,
@@ -262,6 +289,14 @@ function GuideCard({ g, isFav, onToggleFav }) {
         }}><IconPlay size={20} /></div>
         }
       </div>
+      {onEdit &&
+      <button onClick={(e) => { e.stopPropagation(); onEdit(); }} aria-label="Edit guide"
+      style={{
+        all: 'unset', cursor: 'pointer', position: 'absolute', bottom: 8, right: 8, zIndex: 2,
+        padding: '4px 9px', borderRadius: 999, background: 'rgba(10,15,20,0.78)', border: '1px solid rgba(255,255,255,0.22)',
+        color: '#fff', fontFamily: 'JetBrains Mono', fontSize: 8.5, fontWeight: 700, letterSpacing: '0.1em',
+      }}>EDIT</button>
+      }
       {onToggleFav &&
       <button onClick={(e) => {e.stopPropagation();onToggleFav();}} aria-label="Favourite"
       style={{ all: 'unset', cursor: 'pointer', position: 'absolute', top: 8, right: 8, width: 28 * HEX_RATIO, height: 28, display: 'grid', placeItems: 'center' }}>
@@ -284,112 +319,6 @@ function GuideCard({ g, isFav, onToggleFav }) {
           {g.category}
         </span>
       </div>
-    </div>);
-
-}
-
-function AddSheet({ kind, onClose, onAdd }) {
-  const [form, setForm] = React.useState(kind === 'recipes' ?
-  { title: '', kcal: '', protein: '', carbs: '', fats: '', time: '', tag: 'BREAKFAST', img: 'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=600&q=70' } :
-  { title: '', kind: 'ARTICLE', minutes: '', category: 'TECHNIQUE', img: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=600&q=70' });
-
-  const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const submit = () => {
-    if (!form.title) return;
-    onAdd(kind === 'recipes' ?
-    { ...form, kcal: +form.kcal || 0, protein: +form.protein || 0, carbs: +form.carbs || 0, fats: +form.fats || 0, time: +form.time || 0 } :
-    { ...form, minutes: +form.minutes || 0 }
-    );
-  };
-
-  return (
-    <div onClick={onClose} style={{
-      position: 'absolute', inset: 0, zIndex: 50,
-      background: 'rgba(7,7,12,0.7)', backdropFilter: 'blur(8px)',
-      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-      animation: 'fadeIn .2s ease'
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: 'var(--bg-1)', border: '1px solid var(--line-strong)', borderBottom: 'none',
-        borderRadius: '20px 20px 0 0', maxHeight: '88%',
-        display: 'flex', flexDirection: 'column',
-        animation: 'slideUp .25s ease'
-      }}>
-        <div style={{ padding: '8px 0 0', display: 'flex', justifyContent: 'center' }}>
-          <div style={{ width: 36, height: 4, background: 'var(--line-strong)', borderRadius: 2 }} />
-        </div>
-        <div style={{ padding: '14px 16px 4px' }}>
-          <div className="label">// NEW {kind === 'recipes' ? 'RECIPE' : 'GUIDE'}</div>
-          <div className="h-bold" style={{ fontSize: 18, marginTop: 4 }}>ADD TO LIBRARY</div>
-        </div>
-        <div className="scroller" style={{ flex: 1, padding: '14px 16px 0', minHeight: 0 }}>
-          <Field label="TITLE">
-            <input value={form.title} onChange={(e) => update('title', e.target.value)} placeholder={kind === 'recipes' ? 'e.g. Chicken & rice' : 'e.g. Hip mobility routine'} style={inputStyle} />
-          </Field>
-          {kind === 'recipes' ? <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Field label="CALORIES"><input value={form.kcal} onChange={(e) => update('kcal', e.target.value)} placeholder="0" style={inputStyle} inputMode="numeric" /></Field>
-              <Field label="TIME (MIN)"><input value={form.time} onChange={(e) => update('time', e.target.value)} placeholder="0" style={inputStyle} inputMode="numeric" /></Field>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <Field label="PROTEIN G"><input value={form.protein} onChange={(e) => update('protein', e.target.value)} style={inputStyle} inputMode="numeric" /></Field>
-              <Field label="CARBS G"><input value={form.carbs} onChange={(e) => update('carbs', e.target.value)} style={inputStyle} inputMode="numeric" /></Field>
-              <Field label="FATS G"><input value={form.fats} onChange={(e) => update('fats', e.target.value)} style={inputStyle} inputMode="numeric" /></Field>
-            </div>
-            <Field label="MEAL TYPE">
-              <ChoiceRow value={form.tag} onChange={(v) => update('tag', v)} options={['BREAKFAST', 'LUNCH', 'DINNER', 'POST-WORKOUT', 'SNACK']} />
-            </Field>
-          </> : <>
-            <Field label="TYPE">
-              <ChoiceRow value={form.kind} onChange={(v) => update('kind', v)} options={['ARTICLE', 'VIDEO', 'GUIDE']} />
-            </Field>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Field label="DURATION (MIN)"><input value={form.minutes} onChange={(e) => update('minutes', e.target.value)} placeholder="0" style={inputStyle} inputMode="numeric" /></Field>
-              <Field label="CATEGORY">
-                <select value={form.category} onChange={(e) => update('category', e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
-                  {['TECHNIQUE', 'MOBILITY', 'RECOVERY', 'PROGRAMMING', 'NUTRITION'].map((c) => <option key={c} value={c} style={{ background: 'var(--bg-2)' }}>{c}</option>)}
-                </select>
-              </Field>
-            </div>
-          </>}
-          <div style={{ height: 14 }} />
-        </div>
-        <div style={{ padding: '12px 16px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
-          <button className="btn-ghost" style={{ flex: 1 }} onClick={onClose}>CANCEL</button>
-          <button className="btn-primary" style={{ flex: 1 }} onClick={submit}>ADD</button>
-        </div>
-      </div>
-    </div>);
-
-}
-
-const inputStyle = {
-  width: '100%', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8,
-  padding: '10px 12px', color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 13,
-  outline: 'none', letterSpacing: '0.02em'
-};
-
-function Field({ label, children }) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div className="label" style={{ marginBottom: 6 }}>{label}</div>
-      {children}
-    </div>);
-
-}
-
-function ChoiceRow({ value, onChange, options }) {
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {options.map((o) =>
-      <button key={o} onClick={() => onChange(o)} style={{
-        padding: '6px 10px', borderRadius: 999,
-        border: '1px solid ' + (value === o ? 'var(--accent)' : 'var(--line-strong)'),
-        background: value === o ? 'var(--accent-soft)' : 'transparent',
-        color: value === o ? 'var(--accent)' : 'var(--text-2)',
-        fontFamily: 'JetBrains Mono', fontSize: 10, letterSpacing: '0.1em', cursor: 'pointer'
-      }}>{o}</button>
-      )}
     </div>);
 
 }

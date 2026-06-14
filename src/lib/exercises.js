@@ -1,9 +1,25 @@
 import { supabase } from './supabase'
 
 export const MODALITIES = ['Strength', 'Cardio', 'Mobility', 'Plyometric', 'Olympic', 'Bodyweight'];
-export const MUSCLE_GROUPS = [
-  'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms',
-  'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Obliques', 'Full Body',
+// Primary muscle group — the six groupings used across the app.
+export const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core'];
+// Detailed muscles for the multi-select "muscles worked" — keys match the
+// muscle-map / volume groups so logged work lights up the right regions.
+export const ALL_MUSCLES = [
+  { key: 'chest', label: 'Chest' },
+  { key: 'upperBack', label: 'Upper Back' },
+  { key: 'lats', label: 'Lats' },
+  { key: 'lowerBack', label: 'Lower Back' },
+  { key: 'shoulders', label: 'Shoulders' },
+  { key: 'biceps', label: 'Biceps' },
+  { key: 'triceps', label: 'Triceps' },
+  { key: 'forearms', label: 'Forearms' },
+  { key: 'abs', label: 'Abs' },
+  { key: 'obliques', label: 'Obliques' },
+  { key: 'quads', label: 'Quads' },
+  { key: 'hamstrings', label: 'Hamstrings' },
+  { key: 'glutes', label: 'Glutes' },
+  { key: 'calves', label: 'Calves' },
 ];
 export const MOVEMENT_PATTERNS = [
   'Upper Body Vertical Push', 'Upper Body Horizontal Push',
@@ -33,6 +49,7 @@ export async function saveExercise(trainerId, draft) {
     movement_pattern: draft.movement_pattern,
     category: draft.category,
     tracking_fields: draft.tracking_fields,
+    muscles_worked: draft.muscles_worked || [],
     instructions: draft.instructions.trim(),
     link_url: draft.link_url.trim(),
     video_url: draft.video_url.trim(),
@@ -60,6 +77,19 @@ export async function uploadExerciseImage(trainerId, file) {
   if (error) return { error };
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   return { url: data.publicUrl };
+}
+
+// Build a name -> detailed-muscle-keys map from the library, for volume mapping.
+export function exerciseMuscleMap(list) {
+  const m = {};
+  for (const e of (list || [])) {
+    if (e.muscles_worked && e.muscles_worked.length) m[(e.name || '').trim().toLowerCase()] = e.muscles_worked;
+  }
+  return m;
+}
+
+export async function loadExerciseMuscleMap() {
+  return exerciseMuscleMap(await loadExercises());
 }
 
 // Best-effort YouTube/Vimeo thumbnail from a video URL.

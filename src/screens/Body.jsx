@@ -1,5 +1,6 @@
 import React from 'react'
 import { loadMuscleVolume } from '../lib/muscleVolume'
+import { loadExerciseMuscleMap } from '../lib/exercises'
 import { MUSCLE_LABELS } from '../data/index'
 import { MUSCLE_BODY, REGION_LABELS } from '../data/musclePaths'
 import { BodyMap } from './Progress'
@@ -58,7 +59,7 @@ function WorkedView({ userId, side, go }) {
   React.useEffect(() => {
     if (!userId) { setData({}); return; }
     setData(null); setPicked(null);
-    loadMuscleVolume(userId, days).then(setData);
+    loadExerciseMuscleMap().then(map => loadMuscleVolume(userId, days, map)).then(setData);
   }, [userId, days]);
 
   const vol = data || {};
@@ -149,17 +150,22 @@ function InjuriesView({ userId, trainerId, side }) {
   const active = list.filter(i => !i.resolved_at);
   const past   = list.filter(i => i.resolved_at);
 
-  const intensity = React.useCallback((g) => {
-    const hits = active.filter(i => i.muscle_group === g);
+  // picked is a "group|side" key; a muscle's side lights only if an injury
+  // matches that exact side (or is bilateral).
+  const [pickedGroup, pickedSide] = picked ? picked.split('|') : [null, null];
+  const intensity = React.useCallback((g, anat) => {
+    const hits = active.filter(i => i.muscle_group === g && (i.laterality === anat || i.laterality === 'both'));
     if (!hits.length) return 0;
     return Math.max(...hits.map(i => SEV_VAL[i.severity] || 0.5));
   }, [active]);
 
-  const pickedActive = picked ? active.filter(i => i.muscle_group === picked) : [];
+  const pickedActive = pickedGroup
+    ? active.filter(i => i.muscle_group === pickedGroup && (i.laterality === pickedSide || i.laterality === 'both'))
+    : [];
   const openInjury = openId ? list.find(i => i.id === openId) : null;
 
   const report = async (severity, note, laterality) => {
-    await reportInjury({ clientId: userId, trainerId, group: picked, side, severity, note, laterality });
+    await reportInjury({ clientId: userId, trainerId, group: pickedGroup, side, severity, note, laterality });
     setReporting(false); reload();
   };
 
@@ -168,8 +174,8 @@ function InjuriesView({ userId, trainerId, side }) {
   return (
     <>
       <div className="card" style={{ padding: 16, marginBottom: 12, background: 'radial-gradient(60% 80% at 50% 30%, rgba(238,106,106,0.06), transparent 70%), var(--bg-2)' }}>
-        <BodyMap side={side} intensity={intensity} picked={picked} slugMap={slugMap}
-          onPick={(g) => { setPicked(g === picked ? null : g); setReporting(false); setOpenId(null); }}
+        <BodyMap side={side} intensity={intensity} picked={picked} slugMap={slugMap} perSide zoomable
+          onPick={(g, anat) => { const key = `${g}|${anat}`; setPicked(picked === key ? null : key); setReporting(false); setOpenId(null); }}
           data={allGroups} labels={REGION_LABELS} heatColor="var(--c-coral)" />
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
           {Object.entries(SEV_COLOR).map(([sev, col]) => (
@@ -196,10 +202,12 @@ function InjuriesView({ userId, trainerId, side }) {
         )}
 
         {/* Selected region */}
-        {picked && (
+        {pickedGroup && (
           <div className="card" style={{ padding: 14, marginBottom: 12, borderColor: 'color-mix(in srgb, var(--c-coral) 40%, var(--line))' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <div className="h-bold" style={{ fontSize: 15 }}>{labelFor(picked).toUpperCase()}</div>
+              <div className="h-bold" style={{ fontSize: 15 }}>
+                {(pickedSide === 'both' ? '' : `${LAT_LABEL[pickedSide]} `).toUpperCase()}{labelFor(pickedGroup).toUpperCase()}
+              </div>
               {!reporting && (
                 <button onClick={() => setReporting(true)} style={{
                   all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
@@ -209,7 +217,7 @@ function InjuriesView({ userId, trainerId, side }) {
               )}
             </div>
 
-            {reporting && <ReportForm onCancel={() => setReporting(false)} onSave={report} />}
+            {reporting && <ReportForm defaultSide={pickedSide} onCancel={() => setReporting(false)} onSave={report} />}
 
             {!reporting && pickedActive.length === 0 && (
               <Mono>No active injuries here. Tap REPORT INJURY to log one.</Mono>
@@ -269,9 +277,9 @@ function InjuryRow({ inj, onOpen, resolved }) {
   );
 }
 
-function ReportForm({ onCancel, onSave }) {
+function ReportForm({ onCancel, onSave, defaultSide }) {
   const [severity, setSeverity] = React.useState('moderate');
-  const [laterality, setLaterality] = React.useState('both');
+  const [laterality, setLaterality] = React.useState(defaultSide || 'both');
   const [note, setNote] = React.useState('');
   const [saving, setSaving] = React.useState(false);
   return (

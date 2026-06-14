@@ -2,14 +2,14 @@ import React from 'react'
 import { Hex, HexBackButton } from '../components/hex'
 import { IconPlus, IconX2, IconCheck, IconPlay } from '../components/icons'
 import {
-  MODALITIES, MUSCLE_GROUPS, MOVEMENT_PATTERNS, CATEGORIES, TRACKING_OPTIONS,
+  MODALITIES, MUSCLE_GROUPS, ALL_MUSCLES, MOVEMENT_PATTERNS, CATEGORIES, TRACKING_OPTIONS,
   saveExercise, deleteExercise, uploadExerciseImage, videoThumb,
 } from '../lib/exercises'
 
 const emptyDraft = () => ({
   id: null, name: '', modality: 'Strength', muscle_group: 'Shoulders',
   movement_pattern: 'Upper Body Vertical Push', category: 'Strength',
-  tracking_fields: ['Weight', 'Reps'], instructions: '', link_url: '',
+  tracking_fields: ['Weight', 'Reps'], muscles_worked: [], instructions: '', link_url: '',
   video_url: '', thumbnail_url: '', photos: [],
 });
 
@@ -43,6 +43,7 @@ export function ExerciseBuilder({ trainerId, exercise, onClose, onSaved }) {
 
   const addTracking = (f) => { if (!d.tracking_fields.includes(f)) set({ tracking_fields: [...d.tracking_fields, f] }); setTrackMenu(false); };
   const delTracking = (f) => set({ tracking_fields: d.tracking_fields.filter(x => x !== f) });
+  const toggleMuscle = (k) => set({ muscles_worked: d.muscles_worked.includes(k) ? d.muscles_worked.filter(x => x !== k) : [...d.muscles_worked, k] });
 
   const pickThumb = async (e) => {
     const file = e.target.files?.[0]; e.target.value = '';
@@ -95,6 +96,26 @@ export function ExerciseBuilder({ trainerId, exercise, onClose, onSaved }) {
               <DropRow label="Modality" value={d.modality} options={MODALITIES} onChange={v => set({ modality: v })}/>
               <DropRow label="Muscle group" value={d.muscle_group} options={MUSCLE_GROUPS} onChange={v => set({ muscle_group: v })}/>
               <DropRow label="Movement pattern" value={d.movement_pattern} options={MOVEMENT_PATTERNS} onChange={v => set({ movement_pattern: v })}/>
+            </Section>
+
+            <Section label="MUSCLES WORKED">
+              <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.04em', marginBottom: 2 }}>
+                Select every muscle this exercise trains — these light up the client's muscle map &amp; volume.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {ALL_MUSCLES.map(m => {
+                  const on = d.muscles_worked.includes(m.key);
+                  return (
+                    <button key={m.key} onClick={() => toggleMuscle(m.key)} style={{
+                      all: 'unset', cursor: 'pointer', padding: '7px 11px', borderRadius: 999,
+                      fontFamily: 'JetBrains Mono', fontSize: 11, fontWeight: 600,
+                      background: on ? 'var(--accent-soft)' : 'var(--bg-2)',
+                      border: `1px solid ${on ? 'var(--accent)' : 'var(--line)'}`,
+                      color: on ? 'var(--accent)' : 'var(--text-3)',
+                    }}>{on ? '✓ ' : ''}{m.label}</button>
+                  );
+                })}
+              </div>
             </Section>
 
             <Section label="CATEGORY">
@@ -235,6 +256,7 @@ function hydrate(e) {
     muscle_group: e.muscle_group || '', movement_pattern: e.movement_pattern || '',
     category: e.category || 'Strength',
     tracking_fields: e.tracking_fields?.length ? [...e.tracking_fields] : ['Weight', 'Reps'],
+    muscles_worked: e.muscles_worked ? [...e.muscles_worked] : [],
     instructions: e.instructions || '', link_url: e.link_url || '',
     video_url: e.video_url || '', thumbnail_url: e.thumbnail_url || '', photos: e.photos ? [...e.photos] : [],
   };
