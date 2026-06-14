@@ -1,7 +1,7 @@
 import React from 'react'
 import { supabase } from './lib/supabase'
 import { HexShape } from './components/hex'
-import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt } from './components/icons'
+import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt, IconActivity } from './components/icons'
 import { Login } from './screens/Login'
 import { Dashboard } from './screens/Dashboard'
 import { Workouts } from './screens/Workouts'
@@ -11,6 +11,7 @@ import { Resources } from './screens/Resources'
 import { Profile } from './screens/Profile'
 import { Notifications } from './screens/Notifications'
 import { Coach } from './screens/Coach'
+import { Body } from './screens/Body'
 import { SessionResults } from './screens/ActiveLog'
 
 const ACCENTS = {
@@ -164,6 +165,7 @@ export default function App() {
   if (screen === 'workouts')        ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId} userId={activeUserId}/>;
   else if (screen === 'log')        ScreenEl = <ActiveLog go={navigate} dayId={logDayId} userId={activeUserId}/>;
   else if (screen === 'progress')   ScreenEl = <Progress go={navigate} userId={session.user.id}/>;
+  else if (screen === 'body')       ScreenEl = <Body go={navigate} userId={session.user.id} trainerId={profile?.trainer_id}/>;
   else if (screen === 'resources')  ScreenEl = <Resources go={navigate} userId={session.user.id} isTrainer={isTrainer}/>;
   else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id}/>;
   else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={session.user.id} isTrainer={isTrainer}/>;
@@ -237,7 +239,7 @@ function BottomNav({ screen, go, isTrainer }) {
     { id: 'workouts',  label: 'TRAIN',    Icon: IconCalendar },
     { id: 'progress',  label: 'PROGRESS', Icon: IconChart },
     { id: 'resources', label: 'LIBRARY',  Icon: IconBook },
-    { id: 'profile',   label: 'SETTINGS', Icon: IconUser },
+    { id: 'body',      label: 'BODY',     Icon: IconActivity },
   ];
 
   return (

@@ -151,7 +151,13 @@ export function Dashboard({ go, user, userId }) {
               <span style={{ position: 'absolute', top: 1, right: 3, zIndex: 2, width: 8, height: 8, borderRadius: '50%', background: 'var(--c-coral)', border: '1.5px solid var(--bg-1)' }} />
             )}
           </button>
-          <img src="assets/logomark.svg" alt="HS" style={{ width: 38, height: 38, display: 'block', filter: 'drop-shadow(0 0 calc(9px * var(--glow)) var(--accent-glow))' }} />
+          <button onClick={() => go('profile')} aria-label="Profile & settings" style={{ all: 'unset', cursor: 'pointer' }}>
+            <Hex size={38} style={{
+              background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
+              color: 'var(--on-accent)', fontFamily: 'Orbitron', fontSize: 13, fontWeight: 800,
+              filter: 'drop-shadow(0 0 calc(9px * var(--glow)) var(--accent-glow))',
+            }}>{initials}</Hex>
+          </button>
         </div>
       </div>
 

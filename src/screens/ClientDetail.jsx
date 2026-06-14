@@ -247,12 +247,15 @@ function BodyTab({ c, trainerId }) {
     return d;
   }, [side]);
 
+  // Only unresolved injuries drive the heatmap and the per-muscle list.
+  const activeInjuries = React.useMemo(() => injuries.filter(inj => !inj.resolved_at), [injuries]);
+
   const injuryIntensity = React.useCallback((group) => {
-    const inGroup = injuries.filter(inj => inj.muscle_group === group);
+    const inGroup = activeInjuries.filter(inj => inj.muscle_group === group);
     if (!inGroup.length) return 0;
     const sevVal = { mild: 0.35, moderate: 0.65, severe: 1.0 };
     return Math.max(...inGroup.map(inj => sevVal[inj.severity] || 0.5));
-  }, [injuries]);
+  }, [activeInjuries]);
 
   const workedData = volume || {};
   const maxSets = Math.max(1, ...Object.values(workedData).map(d => d.sets));
@@ -262,7 +265,7 @@ function BodyTab({ c, trainerId }) {
   );
 
   const isInjuryMode = mode === 'injuries';
-  const pickedInjuries = picked ? injuries.filter(inj => inj.muscle_group === picked) : [];
+  const pickedInjuries = picked ? activeInjuries.filter(inj => inj.muscle_group === picked) : [];
   const pickedVolume = picked ? workedData[picked] : null;
 
   return (
