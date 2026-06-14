@@ -1,18 +1,15 @@
 import React from 'react'
-import { supabase } from '../lib/supabase'
 import { loadMuscleVolume } from '../lib/muscleVolume'
 import { MUSCLE_LABELS } from '../data/index'
-import { MUSCLE_BODY } from '../data/musclePaths'
+import { MUSCLE_BODY, REGION_LABELS } from '../data/musclePaths'
 import { BodyMap } from './Progress'
-import { Hex } from '../components/hex'
-import { IconPlus, IconCheck, IconX2, IconChevronRight } from '../components/icons'
+import { InjuryThread } from './InjuryThread'
+import { IconPlus, IconX2, IconChevronRight } from '../components/icons'
+import { SEV_COLOR, SEV_LABEL, SEV_VAL, loadInjuries, reportInjury } from '../lib/injuries'
 
-const SEV_COLOR  = { mild: 'var(--c-amber)', moderate: 'var(--c-coral)', severe: '#d93434' };
-const SEV_LABEL  = { mild: 'MILD', moderate: 'MODERATE', severe: 'SEVERE' };
-const SEV_VAL    = { mild: 0.35, moderate: 0.65, severe: 1.0 };
 const RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
 
-const labelFor = (g) => MUSCLE_LABELS[g] || g.replace(/([A-Z])/g, ' $1').trim();
+const labelFor = (g) => REGION_LABELS[g] || MUSCLE_LABELS[g] || g.replace(/([A-Z])/g, ' $1').trim();
 
 // Client-facing Body Map — fifth tab. Two views: muscles worked (volume
 // heatmap) and injuries (report / resolve / history).
@@ -133,19 +130,18 @@ function InjuriesView({ userId, trainerId, side }) {
   const [injuries, setInjuries] = React.useState(null);
   const [picked, setPicked]     = React.useState(null);
   const [reporting, setReporting] = React.useState(false);
+  const [openId, setOpenId]     = React.useState(null);
 
   const reload = React.useCallback(() => {
     if (!userId) { setInjuries([]); return; }
-    supabase.from('client_injuries').select('*').eq('client_id', userId)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => setInjuries(data || []));
+    loadInjuries(userId).then(setInjuries);
   }, [userId]);
   React.useEffect(() => { reload(); }, [reload]);
 
-  // Every muscle is interactive so the client can report anywhere.
+  // Every muscle AND joint is interactive so the client can report anywhere.
+  const slugMap = MUSCLE_BODY.injurySlugs?.[side] || {};
   const allGroups = React.useMemo(() => {
-    const gs = MUSCLE_BODY.groupSlugs?.[side] || {};
-    const d = {}; Object.keys(gs).forEach(g => { d[g] = {}; });
+    const d = {}; Object.keys(slugMap).forEach(g => { d[g] = {}; });
     return d;
   }, [side]);
 
@@ -160,16 +156,10 @@ function InjuriesView({ userId, trainerId, side }) {
   }, [active]);
 
   const pickedActive = picked ? active.filter(i => i.muscle_group === picked) : [];
+  const openInjury = openId ? list.find(i => i.id === openId) : null;
 
-  const resolve = async (id) => {
-    await supabase.from('client_injuries').update({ resolved_at: new Date().toISOString() }).eq('id', id);
-    reload();
-  };
   const report = async (severity, note) => {
-    await supabase.from('client_injuries').insert({
-      client_id: userId, trainer_id: trainerId || null,
-      muscle_group: picked, body_side: side, severity, note,
-    });
+    await reportInjury({ clientId: userId, trainerId, group: picked, side, severity, note });
     setReporting(false); reload();
   };
 
@@ -178,9 +168,9 @@ function InjuriesView({ userId, trainerId, side }) {
   return (
     <>
       <div className="card" style={{ padding: 16, marginBottom: 12, background: 'radial-gradient(60% 80% at 50% 30%, rgba(238,106,106,0.06), transparent 70%), var(--bg-2)' }}>
-        <BodyMap side={side} intensity={intensity} picked={picked}
-          onPick={(g) => { setPicked(g === picked ? null : g); setReporting(false); }}
-          data={allGroups} labels={MUSCLE_LABELS} heatColor="var(--c-coral)" />
+        <BodyMap side={side} intensity={intensity} picked={picked} slugMap={slugMap}
+          onPick={(g) => { setPicked(g === picked ? null : g); setReporting(false); setOpenId(null); }}
+          data={allGroups} labels={REGION_LABELS} heatColor="var(--c-coral)" />
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
           {Object.entries(SEV_COLOR).map(([sev, col]) => (
             <div key={sev} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -190,110 +180,92 @@ function InjuriesView({ userId, trainerId, side }) {
         </div>
       </div>
 
-      {!picked && (
-        <Mono style={{ textAlign: 'center', padding: '4px 0 12px' }}>
-          TAP ANY MUSCLE TO REPORT OR REVIEW AN INJURY
-        </Mono>
+      {/* Open injury thread (add notes / resolve) */}
+      {openInjury && (
+        <div style={{ marginBottom: 14 }}>
+          <InjuryThread injury={openInjury} authorId={userId}
+            onBack={() => setOpenId(null)} onChanged={reload} />
+        </div>
       )}
 
-      {/* Selected muscle */}
-      {picked && (
-        <div className="card" style={{ padding: 14, marginBottom: 12, borderColor: 'color-mix(in srgb, var(--c-coral) 40%, var(--line))' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div className="h-bold" style={{ fontSize: 15 }}>{labelFor(picked).toUpperCase()}</div>
-            {!reporting && (
-              <button onClick={() => setReporting(true)} style={{
-                all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-                fontSize: 9, color: 'var(--c-coral)', fontFamily: 'JetBrains Mono', fontWeight: 700,
-                border: '1px solid color-mix(in srgb, var(--c-coral) 50%, transparent)', borderRadius: 6, padding: '5px 9px',
-              }}><IconPlus size={10}/> REPORT INJURY</button>
+      {!openInjury && <>
+        {!picked && (
+          <Mono style={{ textAlign: 'center', padding: '4px 0 12px' }}>
+            TAP ANY MUSCLE OR JOINT TO REPORT OR REVIEW AN INJURY
+          </Mono>
+        )}
+
+        {/* Selected region */}
+        {picked && (
+          <div className="card" style={{ padding: 14, marginBottom: 12, borderColor: 'color-mix(in srgb, var(--c-coral) 40%, var(--line))' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div className="h-bold" style={{ fontSize: 15 }}>{labelFor(picked).toUpperCase()}</div>
+              {!reporting && (
+                <button onClick={() => setReporting(true)} style={{
+                  all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                  fontSize: 9, color: 'var(--c-coral)', fontFamily: 'JetBrains Mono', fontWeight: 700,
+                  border: '1px solid color-mix(in srgb, var(--c-coral) 50%, transparent)', borderRadius: 6, padding: '5px 9px',
+                }}><IconPlus size={10}/> REPORT INJURY</button>
+              )}
+            </div>
+
+            {reporting && <ReportForm onCancel={() => setReporting(false)} onSave={report} />}
+
+            {!reporting && pickedActive.length === 0 && (
+              <Mono>No active injuries here. Tap REPORT INJURY to log one.</Mono>
             )}
+            {!reporting && pickedActive.map(inj => <InjuryRow key={inj.id} inj={inj} onOpen={() => setOpenId(inj.id)} />)}
           </div>
+        )}
 
-          {reporting && <ReportForm onCancel={() => setReporting(false)} onSave={report} />}
-
-          {!reporting && pickedActive.length === 0 && (
-            <Mono>No active injuries here. Tap REPORT INJURY to log one.</Mono>
-          )}
-          {!reporting && pickedActive.map(inj => (
-            <div key={inj.id} style={{
-              padding: '10px 12px', borderRadius: 8, marginBottom: 6,
-              background: `color-mix(in srgb, ${SEV_COLOR[inj.severity]} 10%, var(--bg-3))`,
-              border: `1px solid color-mix(in srgb, ${SEV_COLOR[inj.severity]} 35%, transparent)`,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{ minWidth: 0 }}>
-                  <span className="mono" style={{ fontSize: 9, color: SEV_COLOR[inj.severity], fontWeight: 700, letterSpacing: '0.08em' }}>{SEV_LABEL[inj.severity]}</span>
-                  {inj.note && <div style={{ fontSize: 12, marginTop: 3, color: 'var(--text)' }}>{inj.note}</div>}
-                  <Mono style={{ marginTop: 3 }}>REPORTED {new Date(inj.created_at).toLocaleDateString('en-GB')}</Mono>
-                </div>
-                <button onClick={() => resolve(inj.id)} style={{
-                  all: 'unset', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
-                  fontSize: 9, color: 'var(--accent)', fontFamily: 'JetBrains Mono', fontWeight: 700,
-                  border: '1px solid color-mix(in srgb, var(--accent) 50%, transparent)', borderRadius: 6, padding: '5px 9px',
-                }}><IconCheck size={10} sw={3}/> RESOLVE</button>
-              </div>
+        {/* Active summary (all regions) */}
+        {active.length > 0 && (
+          <>
+            <div className="label" style={{ margin: '4px 4px 8px' }}>// ACTIVE · {active.length}</div>
+            <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
+              {active.map(inj => <InjuryRow key={inj.id} inj={inj} onOpen={() => setOpenId(inj.id)} />)}
             </div>
-          ))}
-        </div>
-      )}
+          </>
+        )}
 
-      {/* Active summary (all muscles) */}
-      {active.length > 0 && (
-        <>
-          <div className="label" style={{ margin: '4px 4px 8px' }}>// ACTIVE · {active.length}</div>
-          <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
-            {active.map(inj => (
-              <button key={inj.id} onClick={() => { setPicked(inj.muscle_group); setReporting(false); }}
-                style={{ all: 'unset', cursor: 'pointer' }}>
-                <div style={{
-                  display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center',
-                  padding: '10px 12px', background: 'var(--bg-2)', borderRadius: 8,
-                  border: `1px solid color-mix(in srgb, ${SEV_COLOR[inj.severity]} 30%, var(--line))`,
-                }}>
-                  <Dot color={SEV_COLOR[inj.severity]} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{labelFor(inj.muscle_group)}</div>
-                    <Mono style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {SEV_LABEL[inj.severity]}{inj.note ? ` · ${inj.note}` : ''}
-                    </Mono>
-                  </div>
-                  <button onClick={(e) => { e.stopPropagation(); resolve(inj.id); }} style={{
-                    all: 'unset', cursor: 'pointer', fontSize: 9, color: 'var(--accent)',
-                    fontFamily: 'JetBrains Mono', fontWeight: 700, letterSpacing: '0.06em',
-                    border: '1px solid color-mix(in srgb, var(--accent) 50%, transparent)', borderRadius: 6, padding: '5px 9px',
-                  }}>RESOLVE</button>
-                </div>
-              </button>
-            ))}
+        {/* Past injuries */}
+        <div className="label" style={{ margin: '4px 4px 8px' }}>// PAST INJURIES · {past.length}</div>
+        {past.length === 0 ? (
+          <Empty title="NO PAST INJURIES" sub="Resolved injuries appear here for your history" />
+        ) : (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {past.map(inj => <InjuryRow key={inj.id} inj={inj} onOpen={() => setOpenId(inj.id)} resolved />)}
           </div>
-        </>
-      )}
-
-      {/* Past injuries */}
-      <div className="label" style={{ margin: '4px 4px 8px' }}>// PAST INJURIES · {past.length}</div>
-      {past.length === 0 ? (
-        <Empty title="NO PAST INJURIES" sub="Resolved injuries appear here for your history" />
-      ) : (
-        <div style={{ display: 'grid', gap: 6 }}>
-          {past.map(inj => (
-            <div key={inj.id} style={{
-              display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center',
-              padding: '10px 12px', background: 'var(--bg-2)', borderRadius: 8, border: '1px solid var(--line)', opacity: 0.7,
-            }}>
-              <Dot color="var(--text-3)" />
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{labelFor(inj.muscle_group)}</div>
-                <Mono>{SEV_LABEL[inj.severity]}{inj.note ? ` · ${inj.note}` : ''}</Mono>
-              </div>
-              <span className="mono" style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.06em', flexShrink: 0 }}>
-                ✓ {new Date(inj.resolved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+        )}
+      </>}
     </>
+  );
+}
+
+// A tappable injury summary row → opens the thread.
+function InjuryRow({ inj, onOpen, resolved }) {
+  const col = resolved ? 'var(--text-3)' : SEV_COLOR[inj.severity];
+  return (
+    <button onClick={onOpen} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center',
+        padding: '10px 12px', background: 'var(--bg-2)', borderRadius: 8,
+        border: `1px solid color-mix(in srgb, ${col} 30%, var(--line))`, opacity: resolved ? 0.7 : 1,
+      }}>
+        <Dot color={col} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{labelFor(inj.muscle_group)}</div>
+          <Mono style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {SEV_LABEL[inj.severity]}{inj.note ? ` · ${inj.note}` : ''}
+          </Mono>
+        </div>
+        {resolved
+          ? <span className="mono" style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.06em', flexShrink: 0 }}>
+              ✓ {new Date(inj.resolved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+            </span>
+          : <IconChevronRight size={14} style={{ color: 'var(--text-3)' }}/>}
+      </div>
+    </button>
   );
 }
 

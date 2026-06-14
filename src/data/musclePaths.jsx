@@ -249,6 +249,25 @@ export const MUSCLE_BODY = {
       glutes: ['gluteal'], hamstrings: ['hamstring'], calves: ['calves'],
     },
   },
+  // Injury-selectable regions = every muscle PLUS joints/limbs (knees, ankles,
+  // neck, feet, wrists…). Used by the injury map so any body part is tappable.
+  injurySlugs: {
+    front: {
+      chest: ['chest'], shoulders: ['deltoids'], biceps: ['biceps'],
+      triceps: ['triceps'], abs: ['abs'], obliques: ['obliques'],
+      quads: ['quadriceps'], calves: ['calves'], forearms: ['forearm'],
+      adductors: ['adductors'], traps: ['trapezius'], neck: ['neck'],
+      knees: ['knees'], shins: ['tibialis'], ankles: ['ankles'],
+      feet: ['feet'], hands: ['hands'],
+    },
+    back: {
+      shoulders: ['deltoids'], upperBack: ['trapezius'], lats: ['upperBack'],
+      lowerBack: ['lowerBack'], triceps: ['triceps'], forearms: ['forearm'],
+      glutes: ['gluteal'], hamstrings: ['hamstring'], calves: ['calves'],
+      adductors: ['adductors'], neck: ['neck'], ankles: ['ankles'],
+      feet: ['feet'], hands: ['hands'],
+    },
+  },
   // structural parts that never carry heat (drawn neutral)
   neutral: {
     front: ['head', 'hair', 'neck', 'hands', 'knees', 'tibialis', 'ankles', 'feet', 'adductors', 'trapezius'],
@@ -261,4 +280,14 @@ export const MUSCLE_BODY = {
     back:  ['hair', 'head', 'neck', 'adductors', 'ankles', 'feet', 'hands',
             'forearm', 'triceps', 'deltoids', 'trapezius', 'upperBack', 'lowerBack', 'gluteal', 'hamstring', 'calves'],
   },
+};
+
+// Friendly names for every selectable region (muscles + joints/limbs).
+export const REGION_LABELS = {
+  chest: 'Chest', shoulders: 'Shoulders', biceps: 'Biceps', triceps: 'Triceps',
+  abs: 'Abs', obliques: 'Obliques', quads: 'Quads', calves: 'Calves',
+  forearms: 'Forearms', adductors: 'Adductors / Groin', traps: 'Trapezius',
+  neck: 'Neck', knees: 'Knees', shins: 'Shins', ankles: 'Ankles', feet: 'Feet',
+  hands: 'Wrists / Hands', upperBack: 'Upper Back', lats: 'Lats',
+  lowerBack: 'Lower Back', glutes: 'Glutes', hamstrings: 'Hamstrings',
 };

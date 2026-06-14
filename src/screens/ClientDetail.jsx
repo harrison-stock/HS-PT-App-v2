@@ -4,12 +4,14 @@ import { loadMuscleVolume } from '../lib/muscleVolume'
 import { loadPhotoHistory } from '../lib/progressPhotos'
 import { Hex, HexBackButton } from '../components/hex'
 import { BodyMap } from './Progress'
-import { MUSCLE_BODY } from '../data/musclePaths'
-import { IconPlus, IconCheck, IconX2 } from '../components/icons'
+import { InjuryThread } from './InjuryThread'
+import { MUSCLE_BODY, REGION_LABELS } from '../data/musclePaths'
+import { IconPlus, IconCheck, IconX2, IconChevronRight } from '../components/icons'
 
 // ── Constants ────────────────────────────────────────────────────
 const SEV_COLOR  = { mild: 'var(--c-amber)', moderate: 'var(--c-coral)', severe: '#d93434' };
 const SEV_LABEL  = { mild: 'MILD', moderate: 'MODERATE', severe: 'SEVERE' };
+const regionLabel = (g) => REGION_LABELS[g] || (g || '').replace(/([A-Z])/g, ' $1').trim();
 const STATUS_OPTS = [
   { v: 'online',    label: 'ONLINE CLIENT' },
   { v: 'in_person', label: 'IN-PERSON' },
@@ -52,12 +54,22 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
             {c.managed ? '◉ AWAITING SIGN-UP' : c.phaseLabel.toUpperCase()}
           </div>
         </div>
-        <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name }); }}
-          className="mono" style={{
-            all: 'unset', cursor: 'pointer', fontSize: 9, letterSpacing: '0.12em',
-            color: 'var(--accent)', fontWeight: 700, padding: '5px 10px',
-            border: '1px solid color-mix(in srgb, var(--accent) 60%, transparent)', borderRadius: 6,
-          }}>LOG SESSION</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+          {!c.managed && (
+            <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'dashboard' }); }}
+              className="mono" style={{
+                all: 'unset', cursor: 'pointer', fontSize: 9, letterSpacing: '0.1em', textAlign: 'center',
+                color: 'var(--on-accent)', fontWeight: 700, padding: '6px 10px',
+                background: 'var(--accent)', borderRadius: 6,
+              }}>OPEN APP</button>
+          )}
+          <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'workouts' }); }}
+            className="mono" style={{
+              all: 'unset', cursor: 'pointer', fontSize: 9, letterSpacing: '0.1em', textAlign: 'center',
+              color: 'var(--accent)', fontWeight: 700, padding: '6px 10px',
+              border: '1px solid color-mix(in srgb, var(--accent) 60%, transparent)', borderRadius: 6,
+            }}>LOG SESSION</button>
+        </div>
       </div>
 
       {/* ── Tab bar ── */}
@@ -225,7 +237,8 @@ function BodyTab({ c, trainerId }) {
   const [injuries, setInjuries]   = React.useState([]);
   const [volume, setVolume]       = React.useState(null);   // last-30d muscle volume
   const [picked, setPicked]       = React.useState(null);
-  const [editPanel, setEditPanel] = React.useState(null); // { group, existing? }
+  const [editPanel, setEditPanel] = React.useState(null); // { group } when reporting
+  const [openId, setOpenId]       = React.useState(null); // open injury thread
 
   const reload = () =>
     supabase.from('client_injuries').select('*').eq('client_id', c.id)
@@ -239,16 +252,18 @@ function BodyTab({ c, trainerId }) {
     }
   }, [mode, volume, c.id]);
 
-  // Injury mode: ALL muscle groups are interactive (so trainer can click any)
+  // Injury mode: every muscle AND joint is interactive (trainer can click any)
+  const injurySlugMap = MUSCLE_BODY.injurySlugs?.[side] || {};
   const allGroupsData = React.useMemo(() => {
-    const gs = MUSCLE_BODY.groupSlugs?.[side] || {};
     const d = {};
-    Object.keys(gs).forEach(g => { d[g] = {}; });
+    Object.keys(injurySlugMap).forEach(g => { d[g] = {}; });
     return d;
   }, [side]);
 
   // Only unresolved injuries drive the heatmap and the per-muscle list.
   const activeInjuries = React.useMemo(() => injuries.filter(inj => !inj.resolved_at), [injuries]);
+  const resolvedInjuries = React.useMemo(() => injuries.filter(inj => inj.resolved_at), [injuries]);
+  const openInjury = openId ? injuries.find(inj => inj.id === openId) : null;
 
   const injuryIntensity = React.useCallback((group) => {
     const inGroup = activeInjuries.filter(inj => inj.muscle_group === group);
@@ -289,7 +304,9 @@ function BodyTab({ c, trainerId }) {
         data={isInjuryMode ? allGroupsData : workedData}
         intensity={isInjuryMode ? injuryIntensity : workedIntensity}
         picked={picked}
-        onPick={group => { setPicked(group === picked ? null : group); setEditPanel(null); }}
+        slugMap={isInjuryMode ? injurySlugMap : undefined}
+        labels={REGION_LABELS}
+        onPick={group => { setPicked(group === picked ? null : group); setEditPanel(null); setOpenId(null); }}
         heatColor={isInjuryMode ? 'var(--c-coral)' : 'var(--accent)'}
       />
 
@@ -332,59 +349,94 @@ function BodyTab({ c, trainerId }) {
         </div>
       )}
 
-      {/* Selected muscle panel */}
-      {isInjuryMode && picked && (
+      {/* Open injury thread (add notes / resolve) */}
+      {isInjuryMode && openInjury && (
+        <InjuryThread injury={openInjury} authorId={trainerId}
+          onBack={() => setOpenId(null)} onChanged={reload} />
+      )}
+
+      {/* Selected region panel */}
+      {isInjuryMode && !openInjury && picked && (
         <div className="card" style={{
           padding: 14,
           borderColor: 'color-mix(in srgb, var(--c-coral) 40%, var(--line))',
           background: 'color-mix(in srgb, var(--c-coral) 6%, var(--bg-2))',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div className="h-bold" style={{ fontSize: 14, textTransform: 'capitalize' }}>{picked.replace(/([A-Z])/g, ' $1').trim().toUpperCase()}</div>
-            <button onClick={() => setEditPanel({ group: picked })} style={{
-              all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-              fontSize: 9, color: 'var(--c-coral)', fontFamily: 'JetBrains Mono', fontWeight: 700,
-              border: '1px solid color-mix(in srgb, var(--c-coral) 50%, transparent)', borderRadius: 6, padding: '4px 8px',
-            }}><IconPlus size={10}/> ADD NOTE</button>
+            <div className="h-bold" style={{ fontSize: 14 }}>{regionLabel(picked).toUpperCase()}</div>
+            {!editPanel && (
+              <button onClick={() => setEditPanel({ group: picked })} style={{
+                all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 9, color: 'var(--c-coral)', fontFamily: 'JetBrains Mono', fontWeight: 700,
+                border: '1px solid color-mix(in srgb, var(--c-coral) 50%, transparent)', borderRadius: 6, padding: '4px 8px',
+              }}><IconPlus size={10}/> REPORT INJURY</button>
+            )}
           </div>
-          {pickedInjuries.length === 0 && <Mono style={{ color: 'var(--text-3)' }}>No injuries recorded — tap ADD NOTE to log one.</Mono>}
-          {pickedInjuries.map(inj => (
-            <div key={inj.id} style={{
-              padding: '8px 10px', borderRadius: 8, marginBottom: 6,
-              background: `color-mix(in srgb, ${SEV_COLOR[inj.severity]} 10%, var(--bg-3))`,
-              border: `1px solid color-mix(in srgb, ${SEV_COLOR[inj.severity]} 35%, transparent)`,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <span className="mono" style={{ fontSize: 9, color: SEV_COLOR[inj.severity], fontWeight: 700, letterSpacing: '0.08em' }}>{SEV_LABEL[inj.severity]}</span>
-                  <div style={{ fontSize: 12, marginTop: 3, color: 'var(--text)' }}>{inj.note}</div>
-                  <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 3 }}>{new Date(inj.created_at).toLocaleDateString('en-GB')}</div>
-                </div>
-                <button onClick={async () => { await supabase.from('client_injuries').delete().eq('id', inj.id); reload(); }}
-                  style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', padding: 4 }}>
-                  <IconX2 size={12}/>
-                </button>
-              </div>
-            </div>
-          ))}
+
+          {editPanel && (
+            <InjuryForm
+              group={editPanel.group} side={side}
+              onSave={async (note, severity) => {
+                await supabase.from('client_injuries').insert({
+                  client_id: c.id, trainer_id: trainerId,
+                  muscle_group: editPanel.group, body_side: side, note, severity,
+                });
+                setEditPanel(null); reload();
+              }}
+              onClose={() => setEditPanel(null)}
+            />
+          )}
+
+          {!editPanel && pickedInjuries.length === 0 && <Mono style={{ color: 'var(--text-3)' }}>No active injuries here — tap REPORT INJURY to log one.</Mono>}
+          {!editPanel && pickedInjuries.map(inj => <InjuryRow key={inj.id} inj={inj} onOpen={() => setOpenId(inj.id)} />)}
         </div>
       )}
 
-      {/* Add injury panel */}
-      {editPanel && (
-        <InjuryForm
-          group={editPanel.group} side={side} clientId={c.id} trainerId={trainerId}
-          onSave={async (note, severity) => {
-            await supabase.from('client_injuries').insert({
-              client_id: c.id, trainer_id: trainerId,
-              muscle_group: editPanel.group, body_side: side, note, severity,
-            });
-            setEditPanel(null); reload();
-          }}
-          onClose={() => setEditPanel(null)}
-        />
+      {/* Active + past lists */}
+      {isInjuryMode && !openInjury && (
+        <>
+          {activeInjuries.length > 0 && (
+            <>
+              <div className="label" style={{ marginTop: 4 }}>// ACTIVE · {activeInjuries.length}</div>
+              {activeInjuries.map(inj => <InjuryRow key={inj.id} inj={inj} onOpen={() => setOpenId(inj.id)} />)}
+            </>
+          )}
+          {resolvedInjuries.length > 0 && (
+            <>
+              <div className="label" style={{ marginTop: 4, opacity: 0.6 }}>// PAST · {resolvedInjuries.length}</div>
+              {resolvedInjuries.map(inj => <InjuryRow key={inj.id} inj={inj} onOpen={() => setOpenId(inj.id)} resolved />)}
+            </>
+          )}
+        </>
       )}
     </div>
+  );
+}
+
+// Tappable injury summary row → opens the thread.
+function InjuryRow({ inj, onOpen, resolved }) {
+  const col = resolved ? 'var(--text-3)' : SEV_COLOR[inj.severity];
+  return (
+    <button onClick={onOpen} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center',
+        padding: '10px 12px', background: 'var(--bg-2)', borderRadius: 8,
+        border: `1px solid color-mix(in srgb, ${col} 30%, var(--line))`, opacity: resolved ? 0.7 : 1,
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }}/>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{regionLabel(inj.muscle_group)}</div>
+          <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {SEV_LABEL[inj.severity]}{inj.note ? ` · ${inj.note}` : ''}
+          </div>
+        </div>
+        {resolved
+          ? <span className="mono" style={{ fontSize: 9, color: 'var(--accent)', letterSpacing: '0.06em', flexShrink: 0 }}>
+              ✓ {new Date(inj.resolved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+            </span>
+          : <IconChevronRight size={14} style={{ color: 'var(--text-3)' }}/>}
+      </div>
+    </button>
   );
 }
 

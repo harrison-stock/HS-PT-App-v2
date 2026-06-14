@@ -1121,18 +1121,19 @@ function DetailStat({ label, value, color }) {
 // ── BODY MAP SVG ─────────────────────────────────────────────────
 // Stylized anterior/posterior figure. Each region is a path that's
 // filled with accent color at intensity-based opacity.
-export function BodyMap({ side, intensity, picked, onPick, data, labels, heatColor }) {
+export function BodyMap({ side, intensity, picked, onPick, data, labels, heatColor, slugMap }) {
   const body = MUSCLE_BODY[side];
   if (!body) return null;
   const vb = body.viewBox.split(' ').map(Number);
 
-  // slug -> heat group reverse lookup for this side
+  // slug -> heat group reverse lookup for this side. `slugMap` lets callers
+  // (e.g. the injury map) widen the set of selectable regions to joints.
   const slugToGroup = React.useMemo(() => {
     const m = {};
-    const gs = MUSCLE_BODY.groupSlugs[side] || {};
+    const gs = slugMap || MUSCLE_BODY.groupSlugs[side] || {};
     Object.entries(gs).forEach(([group, slugs]) => slugs.forEach((s) => {m[s] = group;}));
     return m;
-  }, [side]);
+  }, [side, slugMap]);
 
   // Default heat colour (green) for every worked muscle; the picked muscle
   // pops in its own zone colour as a highlight.

@@ -105,15 +105,18 @@ export default function App() {
       return;
     }
     if (target === 'clientview') {
+      // Enter "assume control" mode for a client and land on the chosen screen.
       setClientViewId(opts?.clientId || null);
       setClientViewName(opts?.clientName || null);
-      setScreen('workouts');
+      setScreen(opts?.screen || 'dashboard');
       setPreviewWorkoutId(null);
       return;
     }
     if (target === 'log') setLogDayId(opts?.dayId || null);
     if (target === 'sessionresults') setResultsDayId(opts?.dayId || null);
-    if (!['workouts', 'log', 'sessionresults'].includes(target)) {
+    // While controlling a client, navigation stays in their app until the coach
+    // exits (which routes to 'coach').
+    if (target === 'coach') {
       setClientViewId(null);
       setClientViewName(null);
     }
@@ -160,15 +163,20 @@ export default function App() {
 
   const showNav = !['log', 'notifications', 'sessionresults'].includes(screen);
   const activeUserId = clientViewId || session.user.id;
+  // "Assume control": while controlling a client, render the CLIENT app
+  // (their nav + their data) regardless of the coach's own role.
+  const impersonating = !!clientViewId;
+  const navIsTrainer = isTrainer && !impersonating;
+  const dashUser = impersonating ? { name: clientViewName || 'Client', email: '', dob: '' } : user;
 
   let ScreenEl;
   if (screen === 'workouts')        ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId} userId={activeUserId}/>;
   else if (screen === 'log')        ScreenEl = <ActiveLog go={navigate} dayId={logDayId} userId={activeUserId}/>;
-  else if (screen === 'progress')   ScreenEl = <Progress go={navigate} userId={session.user.id}/>;
-  else if (screen === 'body')       ScreenEl = <Body go={navigate} userId={session.user.id} trainerId={profile?.trainer_id}/>;
-  else if (screen === 'resources')  ScreenEl = <Resources go={navigate} userId={session.user.id} isTrainer={isTrainer}/>;
+  else if (screen === 'progress')   ScreenEl = <Progress go={navigate} userId={activeUserId}/>;
+  else if (screen === 'body')       ScreenEl = <Body go={navigate} userId={activeUserId} trainerId={impersonating ? session.user.id : profile?.trainer_id}/>;
+  else if (screen === 'resources')  ScreenEl = <Resources go={navigate} userId={session.user.id} isTrainer={navIsTrainer}/>;
   else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id}/>;
-  else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={session.user.id} isTrainer={isTrainer}/>;
+  else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={activeUserId} isTrainer={navIsTrainer}/>;
   else if (screen === 'sessionresults') ScreenEl = (
     <SessionResults dayId={resultsDayId} userId={activeUserId} go={navigate} onClose={() => navigate('dashboard')}/>
   );
@@ -188,12 +196,12 @@ export default function App() {
       onLogout={() => supabase.auth.signOut()}
     />
   );
-  else ScreenEl = <Dashboard go={navigate} user={user} userId={session.user.id}/>;
+  else ScreenEl = <Dashboard go={navigate} user={dashUser} userId={activeUserId} impersonating={impersonating}/>;
 
   const exitClientView = () => { setClientViewId(null); setClientViewName(null); navigate('coach'); };
 
   return (
-    <div data-role={isTrainer ? 'trainer' : 'client'} style={{
+    <div data-role={navIsTrainer ? 'trainer' : 'client'} style={{
       width: '100%', minHeight: '100dvh',
       fontFamily: "'JetBrains Mono', ui-monospace, 'SF Mono', monospace",
       background: 'var(--bg-1)',
@@ -210,7 +218,7 @@ export default function App() {
           padding: '0 16px',
         }}>
           <div className="mono" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--c-amber)', fontWeight: 700 }}>
-            ◉ TRAINING AS {clientViewName?.toUpperCase() || 'CLIENT'}
+            ◉ CONTROLLING {clientViewName?.toUpperCase() || 'CLIENT'}'S APP
           </div>
           <button onClick={exitClientView} className="mono" style={{
             all: 'unset', cursor: 'pointer', fontSize: 9, letterSpacing: '0.12em',
@@ -222,7 +230,7 @@ export default function App() {
       <div style={{ marginTop: clientViewId ? 36 : 0 }}>
         {ScreenEl}
       </div>
-      {showNav && <BottomNav screen={screen} go={navigate} isTrainer={isTrainer}/>}
+      {showNav && <BottomNav screen={screen} go={navigate} isTrainer={navIsTrainer}/>}
     </div>
   );
 }

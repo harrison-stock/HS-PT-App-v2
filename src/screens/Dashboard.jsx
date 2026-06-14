@@ -67,7 +67,7 @@ function shapeTask(t) {
 }
 
 // Dashboard / Home screen
-export function Dashboard({ go, user, userId }) {
+export function Dashboard({ go, user, userId, impersonating }) {
   const name = (user && user.name) || 'Athlete';
   const firstName = name.trim().split(/\s+/)[0];
   const initials = name.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
@@ -151,7 +151,8 @@ export function Dashboard({ go, user, userId }) {
               <span style={{ position: 'absolute', top: 1, right: 3, zIndex: 2, width: 8, height: 8, borderRadius: '50%', background: 'var(--c-coral)', border: '1.5px solid var(--bg-1)' }} />
             )}
           </button>
-          <button onClick={() => go('profile')} aria-label="Profile & settings" style={{ all: 'unset', cursor: 'pointer' }}>
+          <button onClick={() => { if (!impersonating) go('profile'); }} aria-label="Profile & settings"
+            style={{ all: 'unset', cursor: impersonating ? 'default' : 'pointer' }}>
             <Hex size={38} style={{
               background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
               color: 'var(--on-accent)', fontFamily: 'Orbitron', fontSize: 13, fontWeight: 800,
