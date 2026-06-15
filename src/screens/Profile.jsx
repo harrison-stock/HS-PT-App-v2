@@ -2,7 +2,7 @@ import React from 'react'
 import { HexBackButton, Hex } from '../components/hex'
 import { IconSun, IconMoon, IconCheck } from '../components/icons'
 
-export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeChange }) {
+export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeChange, home = 'dashboard' }) {
   const [activeTab, setActiveTab] = React.useState('profile');
 
   const initials = ((user?.name || 'U')).trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
@@ -11,7 +11,7 @@ export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeCha
     <div className="scroller" style={{ padding: '0 16px 40px', paddingTop: 64 }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0 18px' }}>
-        <HexBackButton onClick={() => go('dashboard')} size={36} />
+        <HexBackButton onClick={() => go(home)} size={36} />
         <div>
           <div className="label" style={{ marginBottom: 4 }}>// ACCOUNT</div>
           <div className="h-bold" style={{ fontSize: 18, lineHeight: 1, color: 'var(--heading-deep)' }}>SETTINGS</div>

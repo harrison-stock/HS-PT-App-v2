@@ -1,7 +1,7 @@
 import React from 'react'
 import { supabase } from './lib/supabase'
 import { HexShape } from './components/hex'
-import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt, IconActivity, IconDumbbell } from './components/icons'
+import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt, IconActivity, IconDumbbell, IconDoc } from './components/icons'
 import { Login } from './screens/Login'
 import { Dashboard } from './screens/Dashboard'
 import { Workouts } from './screens/Workouts'
@@ -13,6 +13,7 @@ import { Notifications } from './screens/Notifications'
 import { Coach } from './screens/Coach'
 import { Body } from './screens/Body'
 import { Exercises } from './screens/Exercises'
+import { Forms } from './screens/Forms'
 import { SessionResults } from './screens/ActiveLog'
 import { unreadCount, subscribeNotifications, maybeBrowserNotify, requestNotifyPermission } from './lib/notifications'
 
@@ -86,6 +87,8 @@ export default function App() {
       ]);
       setProfile(data);
       setBootError(false);
+      // Coaches land on the Coach hub (no client homepage in their nav).
+      if (data?.role === 'trainer') setScreen(s => s === 'dashboard' ? 'coach' : s);
     } catch (e) {
       setBootError(true);
     } finally {
@@ -198,6 +201,7 @@ export default function App() {
 
   const showNav = !['log', 'notifications', 'sessionresults'].includes(screen);
   const activeUserId = clientViewId || session.user.id;
+  const homeScreen = isTrainer ? 'coach' : 'dashboard';
   // "Assume control": while controlling a client, render the CLIENT app
   // (their nav + their data) regardless of the coach's own role.
   const impersonating = !!clientViewId;
@@ -210,9 +214,10 @@ export default function App() {
   else if (screen === 'progress')   ScreenEl = <Progress go={navigate} userId={activeUserId}/>;
   else if (screen === 'body')       ScreenEl = <Body go={navigate} userId={activeUserId} trainerId={impersonating ? session.user.id : profile?.trainer_id}/>;
   else if (screen === 'resources')  ScreenEl = <Resources go={navigate} userId={session.user.id} isTrainer={navIsTrainer}/>;
-  else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id}/>;
+  else if (screen === 'coach')      ScreenEl = <Coach go={navigate} trainerId={session.user.id} unread={unread}/>;
   else if (screen === 'exercises')  ScreenEl = <Exercises trainerId={session.user.id}/>;
-  else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={session.user.id}/>;
+  else if (screen === 'forms')      ScreenEl = <Forms trainerId={session.user.id}/>;
+  else if (screen === 'notifications') ScreenEl = <Notifications go={navigate} userId={session.user.id} home={homeScreen}/>;
   else if (screen === 'sessionresults') ScreenEl = (
     <SessionResults dayId={resultsDayId} userId={activeUserId} go={navigate} onClose={() => navigate('dashboard')}/>
   );
@@ -221,6 +226,7 @@ export default function App() {
       go={navigate}
       user={user}
       profile={profile}
+      home={homeScreen}
       onSave={async (u) => {
         await supabase.from('profiles')
           .update({ name: u.name, date_of_birth: u.dob || null })
@@ -273,11 +279,11 @@ export default function App() {
 
 function BottomNav({ screen, go, isTrainer }) {
   const items = isTrainer ? [
-    { id: 'dashboard', label: 'HOME',     Icon: IconHome },
     { id: 'coach',     label: 'COACH',    Icon: IconBolt },
     { id: 'progress',  label: 'PROGRESS', Icon: IconChart },
     { id: 'resources', label: 'RECIPES',  Icon: IconBook },
     { id: 'exercises', label: 'EXERCISES', Icon: IconDumbbell },
+    { id: 'forms',     label: 'FORMS',    Icon: IconDoc },
   ] : [
     { id: 'dashboard', label: 'HOME',     Icon: IconHome },
     { id: 'workouts',  label: 'TRAIN',    Icon: IconCalendar },

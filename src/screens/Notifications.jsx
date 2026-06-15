@@ -15,7 +15,7 @@ function ago(iso) {
 
 // Notifications — backed by the notifications table (workouts, tasks, forms,
 // comments, injuries). Tapping a row marks it read and jumps to the target.
-export function Notifications({ go, userId }) {
+export function Notifications({ go, userId, home = 'dashboard' }) {
   const [items, setItems] = React.useState(null);
 
   React.useEffect(() => {
@@ -32,7 +32,7 @@ export function Notifications({ go, userId }) {
     <div className="scroller" style={{ padding: '0 16px 110px', paddingTop: 64 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <HexBackButton onClick={() => go('dashboard')} size={36} />
+          <HexBackButton onClick={() => go(home)} size={36} />
           <div>
             <div className="label" style={{ marginBottom: 4 }}>// ACTIVITY</div>
             <div className="h-bold" style={{ fontSize: 20, lineHeight: 1, color: 'var(--heading-deep)' }}>NOTIFICATIONS</div>

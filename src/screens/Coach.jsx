@@ -4,8 +4,6 @@ import { Hex, HexBackButton } from '../components/hex'
 import { IconBell, IconBolt, IconCalendar, IconCheck, IconChevronLeft, IconChevronRight, IconMore, IconUser } from '../components/icons'
 import { ProgrammeBuilder } from './ProgrammeBuilder'
 import { ClientDetail } from './ClientDetail'
-import { FormBuilder } from './FormBuilder'
-import { loadForms } from '../lib/forms'
 
 const CLIENT_ACCENTS = ['#46BBC0','#189CAA','#F39E1F','#EE6A6A','#3F84D9','#E0A5BB','#8086A3'];
 const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -24,7 +22,7 @@ function computeStreak(daysSet, lastDate) {
   return streak;
 }
 
-export function Coach({ go, trainerId }) {
+export function Coach({ go, trainerId, unread = 0 }) {
   const [tab, setTab]                       = React.useState('clients');
   const [clientId, setClientId]             = React.useState(null);
   const [programmeId, setProgrammeId]       = React.useState(null);
@@ -36,11 +34,6 @@ export function Coach({ go, trainerId }) {
   const [loadingClients, setLoadingClients] = React.useState(true);
   const [inviteOpen, setInviteOpen]         = React.useState(false);
   const [todaySchedule, setTodaySchedule]   = React.useState(null);
-  const [forms, setForms]                   = React.useState(null);
-  const [formBuilder, setFormBuilder]       = React.useState(undefined); // undefined=closed, null=new, obj=edit
-
-  const loadFormsList = React.useCallback(() => { loadForms().then(setForms); }, []);
-  React.useEffect(() => { loadFormsList(); }, [loadFormsList]);
 
   React.useEffect(() => {
     fetchProgrammes();
@@ -215,22 +208,15 @@ export function Coach({ go, trainerId }) {
     sessions7d: clients.reduce((n, c) => n + (c.sessionsThisWeek || 0), 0),
   };
 
-  if (formBuilder !== undefined) {
-    return <FormBuilder trainerId={trainerId} form={formBuilder}
-      onClose={() => setFormBuilder(undefined)}
-      onSaved={(keepOpen) => { loadFormsList(); if (!keepOpen) setFormBuilder(undefined); }} />;
-  }
-
   const tabs = [
     { id: 'clients',    label: 'Clients',    count: loadingClients ? null : clients.length },
     { id: 'programmes', label: 'Programmes', count: loadingProgs ? null : programmes.length },
-    { id: 'forms',      label: 'Forms',      count: forms === null ? null : forms.length },
     { id: 'schedule',   label: 'Today',      count: todaySchedule?.length || null },
   ];
 
   return (
     <div className="scroller coach-wrap">
-      <CoachHeader clientCount={clients.length} pendingCount={pendingCount}/>
+      <CoachHeader clientCount={clients.length} pendingCount={pendingCount} go={go} unread={unread}/>
       <KPIRow kpis={kpis}/>
 
       <div style={{ display: 'flex', gap: 4, marginTop: 16, marginBottom: 14 }}>
@@ -247,7 +233,6 @@ export function Coach({ go, trainerId }) {
         onDuplicate={duplicateProgramme}
         onDelete={async (id) => { await deleteProgramme(id); }}
       />}
-      {tab === 'forms'      && <FormsTab forms={forms} onNew={() => setFormBuilder(null)} onEdit={(f) => setFormBuilder(f)}/>}
       {tab === 'schedule'   && <ScheduleTab schedule={todaySchedule} clients={clients} onPick={setClientId}/>}
 
       {activeClient && (
@@ -373,7 +358,7 @@ function CTab({ active, onClick, label, count }) {
 }
 
 // ── HEADER ──────────────────────────────────────────────────────
-function CoachHeader({ clientCount, pendingCount }) {
+function CoachHeader({ clientCount, pendingCount, go, unread = 0 }) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase();
   const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -387,15 +372,23 @@ function CoachHeader({ clientCount, pendingCount }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button className="btn-ghost" style={{ padding: 8, position: 'relative' }}>
+          <button onClick={() => go && go('notifications')} aria-label="Notifications" className="btn-ghost" style={{ padding: 8, position: 'relative' }}>
             <IconBell size={16}/>
-            <span style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, background: 'var(--c-coral)', borderRadius: '50%' }}/>
+            {unread > 0 && (
+              <span className="mono" style={{
+                position: 'absolute', top: -1, right: -1, minWidth: 14, height: 14, padding: '0 3px',
+                borderRadius: 999, background: 'var(--c-coral)', color: '#fff', fontSize: 8, fontWeight: 800,
+                display: 'grid', placeItems: 'center', border: '1.5px solid var(--bg-1)',
+              }}>{unread > 9 ? '9+' : unread}</span>
+            )}
           </button>
-          <Hex size={36} style={{
-            background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
-            color: 'var(--on-accent)',
-            fontFamily: 'Orbitron', fontSize: 11, fontWeight: 800,
-          }}>HS</Hex>
+          <button onClick={() => go && go('profile')} aria-label="Settings" style={{ all: 'unset', cursor: 'pointer' }}>
+            <Hex size={36} style={{
+              background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
+              color: 'var(--on-accent)',
+              fontFamily: 'Orbitron', fontSize: 11, fontWeight: 800,
+            }}>HS</Hex>
+          </button>
         </div>
       </div>
 
@@ -673,42 +666,6 @@ function ProgrammeCard({ p, onPick, onEdit, onDuplicate, onDelete }) {
 }
 
 // ── SCHEDULE TAB ────────────────────────────────────────────────
-// ── FORMS TAB ───────────────────────────────────────────────────
-function FormsTab({ forms, onNew, onEdit }) {
-  return (
-    <>
-      <button onClick={onNew} className="btn-primary" style={{ width: '100%', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        + NEW FORM
-      </button>
-      {forms === null ? (
-        <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>LOADING…</div>
-      ) : forms.length === 0 ? (
-        <div className="card" style={{ padding: 28, textAlign: 'center' }}>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', lineHeight: 1.7 }}>
-            NO FORMS YET<br/><span style={{ fontSize: 9 }}>Build check-ins, intake or feedback forms to assign to clients</span>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gap: 8 }}>
-          {forms.map(f => (
-            <button key={f.id} onClick={() => onEdit(f)} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
-              <div className="card" style={{ padding: 14, display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{f.title}</div>
-                  <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 4 }}>
-                    {(f.fields?.length || 0)} QUESTION{(f.fields?.length || 0) === 1 ? '' : 'S'}
-                  </div>
-                </div>
-                <IconChevronRight size={16} style={{ color: 'var(--text-3)' }}/>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
 function ScheduleTab({ schedule, clients, onPick }) {
   if (schedule === null) return (
     <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>
