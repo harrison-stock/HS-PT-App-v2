@@ -244,7 +244,7 @@ export function Dashboard({ go, user, userId, impersonating, unread = 0 }) {
               ) : (
                 <button className="btn-primary"
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--heading-deep)' }}
-                  onClick={() => go('workouts')}>
+                  onClick={() => todayWorkout.dayId ? go('log', { dayId: todayWorkout.dayId }) : go('workouts')}>
                   <IconPlay size={14}/> START SESSION
                 </button>
               )}

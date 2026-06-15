@@ -615,9 +615,13 @@ function ExportSheet({ recipe, servings, totalKcal, macros, onClose }) {
   { id: 'csv', name: 'CSV / Clipboard', tag: 'COPY RAW', glyph: 'CSV', tint: 'var(--text-2)' }];
 
 
+  // Real action: copy a macro summary to the clipboard to paste into the
+  // chosen tracker (rather than a simulated "send").
   const send = (app) => {
+    const text = `${recipe.title} — ${servings} serving${servings > 1 ? 's' : ''}: ${Math.round(totalKcal)} kcal · ${Math.round(macros[0].v)}g protein · ${Math.round(macros[1].v)}g carbs · ${Math.round(macros[2].v)}g fat`;
+    try { navigator.clipboard?.writeText(text); } catch (e) { /* ignore */ }
     setPickedApp(app);
-    setTimeout(() => setSent(true), 600);
+    setSent(true);
   };
 
   return (
@@ -650,13 +654,13 @@ function ExportSheet({ recipe, servings, totalKcal, macros, onClose }) {
           }}>
               <IconCheck size={28} sw={3} />
             </Hex>
-            <div className="label" style={{ color: 'var(--accent)', marginBottom: 6 }}>// EXPORTED</div>
+            <div className="label" style={{ color: 'var(--accent)', marginBottom: 6 }}>// COPIED</div>
             <div className="h-bold" style={{ fontSize: 20, marginBottom: 6 }}>
-              SENT TO {pickedApp.name.toUpperCase()}
+              COPIED TO CLIPBOARD
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.55, marginBottom: 18 }}>
               {Math.round(totalKcal)} kcal · {servings} serving{servings > 1 ? 's' : ''} of <strong style={{ color: 'var(--text)' }}>{recipe.title}</strong>
-              <br />are queued in your {pickedApp.name} diary for today.
+              <br />Paste it into your {pickedApp.name} diary.
             </div>
             <button className="btn-primary" style={{ width: '100%' }} onClick={onClose}>DONE</button>
           </div>) : (

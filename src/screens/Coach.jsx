@@ -1040,14 +1040,6 @@ function SheetShell({ onClose, children }) {
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <HexBackButton onClick={onClose} size={36} />
-          <button style={{
-            all: 'unset', cursor: 'pointer',
-            width: 36, height: 36, borderRadius: '50%',
-            background: 'var(--bg-2)', border: '1px solid var(--line)',
-            display: 'grid', placeItems: 'center', color: 'var(--text)',
-          }}>
-            <IconMore size={16}/>
-          </button>
         </div>
         {children}
       </div>
