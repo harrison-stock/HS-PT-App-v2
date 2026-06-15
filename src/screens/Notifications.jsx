@@ -1,7 +1,8 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
 import { HexBackButton, Hex } from '../components/hex'
-import { IconUser, IconClipboard, IconCalendar, IconFlame } from '../components/icons'
+import { IconUser, IconClipboard, IconCalendar, IconFlame, IconHeart } from '../components/icons'
+import { injuryTitle } from '../lib/injuries'
 
 const dayStr = (d) => d.toISOString().slice(0, 10);
 
@@ -70,7 +71,8 @@ async function loadTrainerFeed(trainerId) {
   const today = dayStr(new Date());
   const ago3  = new Date(Date.now() - 3 * 86_400_000).toISOString();
 
-  const [profilesQ, managedQ, todayQ, sessQ] = await Promise.all([
+  const ago7 = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const [profilesQ, managedQ, todayQ, sessQ, tasksQ, injQ] = await Promise.all([
     supabase.from('profiles').select('id, name').eq('trainer_id', trainerId).eq('role', 'client'),
     supabase.from('managed_clients').select('id, name').eq('trainer_id', trainerId),
     supabase.from('client_workouts')
@@ -79,6 +81,11 @@ async function loadTrainerFeed(trainerId) {
     supabase.from('workout_sessions').select('id, client_id, completed_at')
       .not('completed_at', 'is', null).gte('completed_at', ago3)
       .order('completed_at', { ascending: false }).limit(10),
+    supabase.from('client_tasks').select('id, client_id, title, completed_at')
+      .not('completed_at', 'is', null).gte('completed_at', ago7)
+      .order('completed_at', { ascending: false }).limit(10),
+    supabase.from('client_injuries').select('id, client_id, muscle_group, laterality, severity, created_at')
+      .gte('created_at', ago7).order('created_at', { ascending: false }).limit(10),
   ]);
 
   const names = {};
@@ -103,9 +110,31 @@ async function loadTrainerFeed(trainerId) {
     if (!names[s.client_id]) return;
     items.push({
       id: `sess-${s.id}`, kind: 'done', today: s.completed_at.slice(0, 10) === today,
-      title: `${names[s.client_id]} logged a session`,
+      title: `${names[s.client_id]} completed a workout`,
       body: 'Open their file to review the logged sets.',
       when: fmtDate(s.completed_at),
+      target: 'coach',
+    });
+  });
+
+  (tasksQ.data || []).forEach(t => {
+    if (!names[t.client_id]) return;
+    items.push({
+      id: `task-${t.id}`, kind: 'task', today: t.completed_at.slice(0, 10) === today,
+      title: `${names[t.client_id]} completed a task`,
+      body: t.title,
+      when: fmtDate(t.completed_at),
+      target: 'coach',
+    });
+  });
+
+  (injQ.data || []).forEach(inj => {
+    if (!names[inj.client_id]) return;
+    items.push({
+      id: `inj-${inj.id}`, kind: 'injury', today: inj.created_at.slice(0, 10) === today,
+      title: `${names[inj.client_id]} reported an injury`,
+      body: `${injuryTitle(inj)} · ${inj.severity}`,
+      when: fmtDate(inj.created_at),
       target: 'coach',
     });
   });
@@ -204,5 +233,6 @@ const NOTIF_META = {
   task:     { icon: (p) => <IconClipboard {...p} />, color: 'var(--c-amber)' },
   schedule: { icon: (p) => <IconCalendar {...p} />,  color: 'var(--accent-2)' },
   done:     { icon: (p) => <IconFlame {...p} />,     color: 'var(--accent)' },
+  injury:   { icon: (p) => <IconHeart {...p} />,     color: 'var(--c-coral)' },
   coach:    { icon: (p) => <IconUser {...p} />,      color: 'var(--accent)' },
 };

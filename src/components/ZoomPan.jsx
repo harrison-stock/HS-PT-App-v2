@@ -13,7 +13,6 @@ export function ZoomPan({ children, min = 1, max = 4, height = 440 }) {
 
   const down = (e) => {
     ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    e.currentTarget.setPointerCapture?.(e.pointerId);
     moved.current = false;
     if (ptrs.current.size === 1) last.current = { x: e.clientX, y: e.clientY };
     if (ptrs.current.size === 2) {
@@ -25,14 +24,17 @@ export function ZoomPan({ children, min = 1, max = 4, height = 440 }) {
     if (!ptrs.current.has(e.pointerId)) return;
     ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.current.size >= 2 && pinch.current) {
+      // Capture the pointer only once we're genuinely pinching, so simple
+      // taps still reach the muscle paths underneath.
+      e.currentTarget.setPointerCapture?.(e.pointerId);
       const [a, b] = [...ptrs.current.values()];
       const s = clampS(pinch.current.s * (Math.hypot(a.x - b.x, a.y - b.y) / pinch.current.dist));
       moved.current = true;
       setT(prev => ({ ...prev, s }));
     } else if (ptrs.current.size === 1 && last.current && t.s > 1) {
       const dx = e.clientX - last.current.x, dy = e.clientY - last.current.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) { moved.current = true; e.currentTarget.setPointerCapture?.(e.pointerId); }
       last.current = { x: e.clientX, y: e.clientY };
-      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved.current = true;
       setT(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
     }
   };

@@ -436,8 +436,8 @@ function BodyTab({ c, trainerId }) {
     <div style={{ display: 'grid', gap: 10 }}>
       {/* Mode toggle — large */}
       <div style={{ display: 'flex', gap: 8 }}>
-        <BigToggle active={isInjuryMode}  onClick={() => { setMode('injuries'); setPicked(null); }}>🩹 INJURIES</BigToggle>
-        <BigToggle active={!isInjuryMode} onClick={() => { setMode('worked');   setPicked(null); setEditPanel(null); }}>💪 TRAINED</BigToggle>
+        <BigToggle active={isInjuryMode}  onClick={() => { setMode('injuries'); setPicked(null); }}>INJURIES</BigToggle>
+        <BigToggle active={!isInjuryMode} onClick={() => { setMode('worked');   setPicked(null); setEditPanel(null); }}>TRAINED</BigToggle>
       </div>
       {/* Front / back — large */}
       <div style={{ display: 'flex', gap: 8 }}>
@@ -1154,7 +1154,8 @@ const fieldSt = {
 };
 
 const navBtnSt = {
-  all: 'unset', cursor: 'pointer', padding: '4px 10px', borderRadius: 7,
-  fontSize: 16, color: 'var(--text-2)', background: 'var(--bg-3)',
+  all: 'unset', cursor: 'pointer', padding: '6px 9px', borderRadius: 7,
+  fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
+  color: 'var(--text-2)', background: 'var(--bg-3)',
   border: '1px solid var(--line)',
 };

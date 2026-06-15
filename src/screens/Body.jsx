@@ -27,8 +27,8 @@ export function Body({ userId, trainerId, go }) {
 
       {/* View switch — large, primary */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <ViewTab active={view === 'worked'}   onClick={() => setView('worked')}>💪 MUSCLES WORKED</ViewTab>
-        <ViewTab active={view === 'injuries'} onClick={() => setView('injuries')}>🩹 INJURIES</ViewTab>
+        <ViewTab active={view === 'worked'}   onClick={() => setView('worked')}>MUSCLES WORKED</ViewTab>
+        <ViewTab active={view === 'injuries'} onClick={() => setView('injuries')}>INJURIES</ViewTab>
       </div>
 
       {/* Front / back — large segmented control */}
