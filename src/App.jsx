@@ -51,13 +51,17 @@ export default function App() {
   const [session, setSession] = React.useState(null);
   const [profile, setProfile] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(true);
+  const [bootError, setBootError] = React.useState(false);
 
   React.useEffect(() => {
+    let done = false;
+    const finish = () => { done = true; setAuthLoading(false); };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchProfile(session.user.id);
-      else setAuthLoading(false);
-    });
+      if (session) fetchProfile(session.user.id).finally(finish);
+      else finish();
+    }).catch(finish);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
@@ -65,17 +69,26 @@ export default function App() {
       else { setProfile(null); setAuthLoading(false); }
     });
 
-    return () => subscription.unsubscribe();
+    // Watchdog — never hang forever if the backend is paused/unreachable.
+    const wd = setTimeout(() => { if (!done) { setBootError(true); setAuthLoading(false); } }, 10000);
+
+    return () => { clearTimeout(wd); subscription.unsubscribe(); };
   }, []);
 
   const fetchProfile = async (userId) => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    setProfile(data);
-    setAuthLoading(false);
+    try {
+      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000));
+      const { data } = await Promise.race([
+        supabase.from('profiles').select('*').eq('id', userId).single(),
+        timeout,
+      ]);
+      setProfile(data);
+      setBootError(false);
+    } catch (e) {
+      setBootError(true);
+    } finally {
+      setAuthLoading(false);
+    }
 
     const pendingInvite = localStorage.getItem('pt_pending_invite');
     if (pendingInvite) {
@@ -153,6 +166,7 @@ export default function App() {
   }, [theme, accent, bg, typeIntensity, density, glow]);
 
   if (authLoading) return <LoadingScreen />;
+  if (bootError && !profile) return <BootError onRetry={() => window.location.reload()} />;
   if (!session) return <Login />;
 
   const isTrainer = profile?.role === 'trainer';
@@ -298,6 +312,23 @@ function LoadingScreen() {
         <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.2em' }}>
           LOADING…
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BootError({ onRetry }) {
+  return (
+    <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', background: 'var(--bg-0)', padding: 24 }}>
+      <div style={{ textAlign: 'center', maxWidth: 320 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16, opacity: 0.85 }}>
+          <HexShape size={40} fill="var(--c-amber)" />
+        </div>
+        <div className="h-bold" style={{ fontSize: 18, color: 'var(--heading-deep)', marginBottom: 8 }}>CAN’T REACH THE SERVER</div>
+        <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6, marginBottom: 20 }}>
+          The backend may be waking up (free-tier projects pause after inactivity). Give it a few seconds, then retry.
+        </div>
+        <button onClick={onRetry} className="btn-primary" style={{ padding: '12px 22px' }}>RETRY</button>
       </div>
     </div>
   );
