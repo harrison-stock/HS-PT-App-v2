@@ -17,6 +17,9 @@ declare
   v_sec   uuid;
   v_ex    uuid;
   v_w     int;
+  v_sess  uuid;
+  v_rec   record;
+  v_sdate date;
 begin
   -- ── Coach ─────────────────────────────────────────────────────────────────
   select id into v_coach from public.profiles where lower(email) = lower('harrison@harrisonstock.co.uk') limit 1;
@@ -305,6 +308,50 @@ begin
                 then 'completed' else 'scheduled' end
     from public.programme_days pd
     where pd.phase_id = v_ph1 and pd.week_index = 0;
+  end if;
+
+  -- ── Logged history for John Doe: 4 Foundation weeks with progressive overload
+  --    so the Performance Report has a real first-week vs final-week comparison.
+  if v_mc is not null then
+    delete from public.workout_sessions where client_id = v_mc and day_id in (
+      select pd.id from public.programme_days pd
+      join public.programme_phases pp on pp.id = pd.phase_id
+      where pp.programme_id = v_prog
+    );
+
+    for v_w in 0..3 loop
+      for v_day in
+        select id from public.programme_days where phase_id = v_ph1 and week_index = v_w order by day_of_week
+      loop
+        -- week 0 ≈ 4 weeks ago … week 3 ≈ this week
+        select (date_trunc('week', current_date)::date - (3 - v_w) * 7
+                + (select day_of_week from public.programme_days where id = v_day))
+          into v_sdate;
+
+        insert into public.workout_sessions (client_id, day_id, started_at, completed_at)
+        values (v_mc, v_day, v_sdate + time '08:00', v_sdate + time '09:05')
+        returning id into v_sess;
+
+        -- Replay every prescribed weighted set, ~5% heavier each week, +1 rep in
+        -- the final week to show progression.
+        for v_rec in
+          select se.id as ex_id, es.set_index, es.kind, es.reps, es.weight_kg, es.time_secs
+          from public.workout_sections wsec
+          join public.section_exercises se on se.section_id = wsec.id
+          join public.exercise_sets es on es.exercise_id = se.id
+          where wsec.day_id = v_day and es.kind in ('WARMUP','WORK')
+        loop
+          insert into public.logged_sets (session_id, exercise_id, set_index, actual_reps, actual_weight_kg, actual_time_secs, completed_at)
+          values (
+            v_sess, v_rec.ex_id, v_rec.set_index,
+            coalesce(v_rec.reps, 0) + (case when v_w = 3 and v_rec.kind = 'WORK' then 1 else 0 end),
+            round(coalesce(v_rec.weight_kg, 0) * (1 + 0.05 * v_w))::numeric(6,2),
+            v_rec.time_secs,
+            v_sdate + time '09:00'
+          );
+        end loop;
+      end loop;
+    end loop;
   end if;
 
   raise notice 'Demo programme seeded (programme %, % assigned to John Doe).', v_prog, coalesce(v_mc::text, 'not');

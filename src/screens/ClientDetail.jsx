@@ -10,6 +10,7 @@ import { injuryTitle } from '../lib/injuries'
 import { notify } from '../lib/notifications'
 import { loadForms } from '../lib/forms'
 import { IconPlus, IconCheck, IconX2, IconChevronRight } from '../components/icons'
+import { ProgrammeReport } from './ProgrammeReport'
 
 // ── Constants ────────────────────────────────────────────────────
 const SEV_COLOR  = { mild: 'var(--c-amber)', moderate: 'var(--c-coral)', severe: '#d93434' };
@@ -31,6 +32,7 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
     { id: 'training',  label: 'TRAINING'  },
     { id: 'body',      label: 'BODY'      },
     { id: 'data',      label: 'DATA'      },
+    { id: 'report',    label: 'REPORT'    },
     { id: 'tasks',     label: 'TASKS'     },
     { id: 'goals',     label: 'GOALS'     },
     { id: 'settings',  label: 'SETTINGS'  },
@@ -92,6 +94,8 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
         {tab === 'goals'    && <GoalsTab     c={c} trainerId={trainerId} />}
         {tab === 'settings' && <SettingsTab  c={c} trainerId={trainerId} onSaved={onChanged} onArchived={() => { onChanged?.(); onClose(); }} />}
       </div>
+
+      {tab === 'report' && <ProgrammeReport clientId={c.id} clientName={c.name} onClose={() => setTab('overview')} />}
     </div>
   );
 }
