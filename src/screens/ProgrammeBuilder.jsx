@@ -293,7 +293,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
       </div>
 
       {/* Body */}
-      <div className="scroller" style={{ flex: 1, padding: '14px 14px 28px', minHeight: 0 }}>
+      <div className="scroller" style={{ flex: 1, padding: '16px 16px 32px', minHeight: 0, width: '100%', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' }}>
         {saveError && (
           <div className="mono" style={{
             marginBottom: 12, padding: '10px 12px', borderRadius: 8, fontSize: 10, lineHeight: 1.5,
@@ -476,7 +476,7 @@ function RoadmapPanel({ prog, onSave, onBack, trainerId }) {
         </div>
       </div>
 
-      <div className="scroller" style={{ flex: 1, padding: '16px 14px 36px', minHeight: 0 }}>
+      <div className="scroller" style={{ flex: 1, padding: '18px 16px 40px', minHeight: 0, width: '100%', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' }}>
         {saveError && (
           <div className="mono" style={{
             marginBottom: 14, padding: '10px 12px', borderRadius: 8, fontSize: 10, lineHeight: 1.5,
@@ -611,14 +611,14 @@ function Section({ s, sIdx, expandedExId, expandedSetId, onExpandEx, onExpandSet
   });
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 22, height: 22, borderRadius: 6, display: 'grid', placeItems: 'center', color, background: `color-mix(in srgb, ${color} 14%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`, fontFamily: 'Orbitron', fontWeight: 800, fontSize: 10 }}>{sIdx+1}</span>
-          <div className="label" style={{ color, letterSpacing: '0.14em' }}>// {s.title.toUpperCase()}</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span style={{ width: 24, height: 24, borderRadius: 6, display: 'grid', placeItems: 'center', color, background: `color-mix(in srgb, ${color} 14%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`, fontFamily: 'Orbitron', fontWeight: 800, fontSize: 11 }}>{sIdx+1}</span>
+          <div className="label" style={{ color, letterSpacing: '0.14em', fontSize: 11 }}>// {s.title.toUpperCase()}</div>
         </div>
-        <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.1em' }}>{s.items.length} EX</span>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.1em' }}>{s.items.length} EX</span>
       </div>
-      <div style={{ display: 'grid', gap: 6 }}>
+      <div style={{ display: 'grid', gap: 9 }}>
         {s.items.map((e, eIdx) => (
           <ExerciseEditor key={e.id} e={e} color={color}
             expanded={expandedExId === e.id} expandedSetId={expandedSetId}
@@ -654,15 +654,15 @@ function ExerciseEditor({ e, color, expanded, expandedSetId, ssLabel, canSuperse
 
   return (
     <div style={{ background: 'var(--bg-2)', border: '1px solid '+(expanded?color:'var(--line)'), borderLeft: grouped ? '2px solid var(--accent-2)' : `2px solid ${color}`, borderRadius: 10, overflow: 'hidden', boxShadow: expanded ? `0 0 calc(8px * var(--glow)) color-mix(in srgb, ${color} 30%, transparent)` : 'none' }}>
-      <button onClick={onExpand} style={{ all: 'unset', cursor: 'pointer', width: '100%', display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: 10, alignItems: 'center', padding: 10 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 8, background: `url('${e.img}') center/cover, var(--bg-3)`, border: '1px solid var(--line)' }}/>
+      <button onClick={onExpand} style={{ all: 'unset', cursor: 'pointer', width: '100%', display: 'grid', gridTemplateColumns: '46px 1fr auto', gap: 12, alignItems: 'center', padding: 12 }}>
+        <div style={{ width: 46, height: 46, borderRadius: 9, background: `url('${e.img}') center/cover, var(--bg-3)`, border: '1px solid var(--line)' }}/>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {ssLabel && <span className="mono" style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: '0.06em', color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)', borderRadius: 5, padding: '2px 5px', flexShrink: 0 }}>SS {ssLabel}</span>}
+            {ssLabel && <span className="mono" style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)', borderRadius: 5, padding: '2px 5px', flexShrink: 0 }}>SS {ssLabel}</span>}
             <input value={e.name} onClick={ev => ev.stopPropagation()} onChange={ev => onUpdateEx({ name: ev.target.value })}
-              style={{ width: '100%', background: 'transparent', border: 0, outline: 'none', color: 'var(--text)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', padding: 0 }}/>
+              style={{ width: '100%', background: 'transparent', border: 0, outline: 'none', color: 'var(--text)', fontSize: 15, fontWeight: 600, fontFamily: 'inherit', padding: 0 }}/>
           </div>
-          <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 2 }}>{summary}</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 3 }}>{summary}</div>
         </div>
         <div style={{ color: 'var(--text-3)', transform: expanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform .2s' }}>
           <IconChevronRight size={14}/>

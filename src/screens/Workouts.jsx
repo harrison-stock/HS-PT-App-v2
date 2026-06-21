@@ -52,6 +52,7 @@ function shapeWorkout(row) {
           name: ex.name,
           img: ex.img_url || null,
           tempo: ex.tempo || '',
+          ss: ex.superset_group ?? null,
           target: deriveTarget(ex.exercise_sets),
           load: deriveLoad(ex.exercise_sets),
         })),
@@ -74,6 +75,17 @@ function shapeWorkout(row) {
     coachNotes: day.notes || '',
     sections,
   };
+}
+
+// Superset labels (A1/A2…) per section, mirroring the builder.
+function ssLabels(items) {
+  const seen = {}; let li = 0; const cnt = {};
+  return (items || []).map(it => {
+    if (it.ss == null) return null;
+    if (!(it.ss in seen)) seen[it.ss] = String.fromCharCode(65 + li++);
+    cnt[it.ss] = (cnt[it.ss] || 0) + 1;
+    return `${seen[it.ss]}${cnt[it.ss]}`;
+  });
 }
 
 export function Workouts({ go, openPreview, userId }) {
@@ -102,7 +114,7 @@ export function Workouts({ go, openPreview, userId }) {
           workout_sections (
             id, kind, title, sort_order,
             section_exercises (
-              id, name, img_url, tempo, sort_order,
+              id, name, img_url, tempo, superset_group, sort_order,
               exercise_sets ( set_index, reps, weight_kg )
             )
           )
@@ -470,13 +482,17 @@ function SectionAccordion({ s, index, expanded, onToggle, onOpen }) {
 
       <div style={{ padding: '0 16px 12px' }}>
         <div style={{ display: 'grid', gap: 2 }}>
-          {s.items.map((e, i) => (
+          {ssLabels(s.items).map((lbl, i) => {
+            const e = s.items[i];
+            return (
             <div key={i} style={{
               display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center',
               padding: '7px 0',
               borderTop: i === 0 ? '1px solid var(--line)' : '1px solid color-mix(in srgb, var(--line) 55%, transparent)',
             }}>
-              <span style={{ width: 5, height: 5, borderRadius: 1.5, background: color, flexShrink: 0 }}/>
+              {lbl
+                ? <span className="mono" style={{ fontSize: 8, fontWeight: 800, color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)', borderRadius: 4, padding: '1px 4px', flexShrink: 0 }}>{lbl}</span>
+                : <span style={{ width: 5, height: 5, borderRadius: 1.5, background: color, flexShrink: 0 }}/>}
               <span style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono', monospace" }}>
                 {e.name}
               </span>
@@ -484,7 +500,8 @@ function SectionAccordion({ s, index, expanded, onToggle, onOpen }) {
                 {e.target}
               </span>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -511,7 +528,7 @@ function SectionAccordion({ s, index, expanded, onToggle, onOpen }) {
   );
 }
 
-function ExerciseRow({ e, large, color }) {
+function ExerciseRow({ e, large, color, ssLabel }) {
   return (
     <div style={{
       display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 12,
@@ -532,7 +549,10 @@ function ExerciseRow({ e, large, color }) {
         </div>
       </div>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: large ? 15 : 13.5, fontWeight: 600, lineHeight: 1.25 }}>{e.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {ssLabel && <span className="mono" style={{ fontSize: 8.5, fontWeight: 800, color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)', borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>SS {ssLabel}</span>}
+          <div style={{ fontSize: large ? 15 : 13.5, fontWeight: 600, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name}</div>
+        </div>
         <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)', letterSpacing: '0.04em', marginTop: 3 }}>
           {e.load && e.load !== '—' ? `${e.load} · ` : ''}{e.target}
         </div>
@@ -582,7 +602,7 @@ function SectionDetail({ s, onBack }) {
         )}
         <div className="label" style={{ margin: '4px 0 10px' }}>// EXERCISES</div>
         <div>
-          {s.items.map((e, i) => <ExerciseRow key={i} e={e} color={color} large/>)}
+          {ssLabels(s.items).map((lbl, i) => <ExerciseRow key={i} e={s.items[i]} ssLabel={lbl} color={color} large/>)}
         </div>
       </div>
     </div>
