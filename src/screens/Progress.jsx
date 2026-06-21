@@ -1127,7 +1127,7 @@ function DetailStat({ label, value, color }) {
 // ── BODY MAP SVG ─────────────────────────────────────────────────
 // Stylized anterior/posterior figure. Each region is a path that's
 // filled with accent color at intensity-based opacity.
-export function BodyMap({ side, intensity, picked, onPick, data, labels, heatColor, slugMap, perSide, zoomable }) {
+export function BodyMap({ side, intensity, picked, onPick, data, labels, heatColor, slugMap, perSide, zoomable, neutralBase, tintFor }) {
   const body = MUSCLE_BODY[side];
   if (!body) return null;
   const vb = body.viewBox.split(' ').map(Number);
@@ -1155,12 +1155,33 @@ export function BodyMap({ side, intensity, picked, onPick, data, labels, heatCol
   // …); heatColor is a fallback for regions without a mapped colour.
   const colorFor = (group) => MUSCLE_COLOR[group] || heatColor || 'var(--accent)';
   const isPickedKey = (key) => picked instanceof Set ? picked.has(key) : picked === key;
-  const fillFor = (group, v, isPicked) => {
-    const alpha = 0.12 + v * 0.82;
-    return `color-mix(in srgb, ${colorFor(group)} ${Math.round(alpha * 100)}%, var(--bg-3))`;
-  };
   const neutralStroke = 'color-mix(in srgb, var(--text-3) 24%, transparent)';
   const neutralFill = 'color-mix(in srgb, var(--text-3) 14%, var(--bg-3))';
+  const PICK = 'var(--accent)';
+
+  // Resolve the colour to "light up" a region. `tintFor` (injury mode) overrides
+  // the anatomical colour so a region glows in its injury-severity colour, and
+  // returns null where there's nothing to show.
+  const litColor = (group, anat) => tintFor ? tintFor(group, anat) : colorFor(group);
+
+  // Paint a region from its signal strength `v` and selection state. In
+  // neutralBase mode the body stays grey until a region is injured or tapped.
+  const paint = (group, anat, v, isPicked) => {
+    const lc = litColor(group, anat);
+    const lit = v > 0 && !!lc;
+    if (lit) {
+      const alpha = 0.18 + v * 0.72;
+      return { fill: `color-mix(in srgb, ${lc} ${Math.round(alpha * 100)}%, var(--bg-3))`, stroke: lc, sw: isPicked ? 2.6 : 1.6, glow: lc };
+    }
+    if (isPicked) {
+      const c = lc || PICK;
+      return { fill: `color-mix(in srgb, ${c} 26%, var(--bg-3))`, stroke: c, sw: 2.6, glow: c };
+    }
+    if (neutralBase) return { fill: neutralFill, stroke: neutralStroke, sw: 1, glow: null };
+    const c = lc || 'var(--accent)';
+    const alpha = 0.12 + v * 0.82;
+    return { fill: `color-mix(in srgb, ${c} ${Math.round(alpha * 100)}%, var(--bg-3))`, stroke: `color-mix(in srgb, ${c} 45%, transparent)`, sw: 1, glow: null };
+  };
 
   const svg = (
     <svg viewBox={body.viewBox} width="100%"
@@ -1197,13 +1218,13 @@ export function BodyMap({ side, intensity, picked, onPick, data, labels, heatCol
             const anat = anatOf(d);
             const v = intensity(group, anat);
             const isP = isPickedKey(`${group}|${anat}`);
+            const p = paint(group, anat, v, isP);
             return (
               <path key={slug + i} d={d}
                 onClick={() => onPick(group, anat)}
-                fill={fillFor(group, v, isP)}
-                stroke={isP ? colorFor(group) : `color-mix(in srgb, ${colorFor(group)} 45%, transparent)`}
-                strokeWidth={isP ? 2.4 : 1} strokeLinejoin="round" vectorEffect="non-scaling-stroke"
-                style={{ cursor: 'pointer', filter: isP ? `drop-shadow(0 0 7px ${colorFor(group)})` : 'none', transition: 'all .15s ease' }} />
+                fill={p.fill} stroke={p.stroke}
+                strokeWidth={p.sw} strokeLinejoin="round" vectorEffect="non-scaling-stroke"
+                style={{ cursor: 'pointer', filter: p.glow ? `drop-shadow(0 0 7px ${p.glow})` : 'none', transition: 'all .15s ease' }} />
             );
           });
         }
@@ -1214,13 +1235,12 @@ export function BodyMap({ side, intensity, picked, onPick, data, labels, heatCol
         const anat = central ? 'both' : null;
         const isPicked = central ? isPickedKey(`${group}|both`) : isPickedKey(group);
         const v = central ? intensity(group, 'both') : intensity(group);
-        const fill = fillFor(group, v, isPicked);
-        const stroke = isPicked ? colorFor(group) : `color-mix(in srgb, ${colorFor(group)} 45%, transparent)`;
+        const p = paint(group, anat, v, isPicked);
         return (
           <g key={slug}
           onClick={() => central ? onPick(group, 'both') : onPick(picked === group ? null : group)}
-          style={{ cursor: 'pointer', filter: isPicked ? `drop-shadow(0 0 7px ${colorFor(group)})` : 'none', transition: 'all .2s ease' }}>
-            {paths.map((d, i) => <path key={i} d={d} fill={fill} stroke={stroke} strokeWidth={isPicked ? 2.4 : 1} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
+          style={{ cursor: 'pointer', filter: p.glow ? `drop-shadow(0 0 7px ${p.glow})` : 'none', transition: 'all .2s ease' }}>
+            {paths.map((d, i) => <path key={i} d={d} fill={p.fill} stroke={p.stroke} strokeWidth={p.sw} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
           </g>);
       })}
     </svg>
@@ -1248,6 +1268,33 @@ export function BodyMap({ side, intensity, picked, onPick, data, labels, heatCol
       </div>
     </div>);
 
+}
+
+// Compact FRONT / BACK toggle with a sliding pill (gentle overshoot).
+export function SideSlider({ side, onChange }) {
+  const idx = side === 'front' ? 0 : 1;
+  return (
+    <div style={{
+      position: 'relative', display: 'flex', width: 196, margin: '0 auto',
+      background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 999, padding: 3,
+    }}>
+      <div style={{
+        position: 'absolute', top: 3, bottom: 3, left: 3, width: 'calc(50% - 3px)',
+        borderRadius: 999, background: 'var(--accent-soft)', border: '1px solid var(--accent)',
+        transform: `translateX(${idx * 100}%)`,
+        transition: 'transform .3s cubic-bezier(.34,1.56,.64,1)',
+        boxShadow: '0 0 calc(8px * var(--glow)) var(--accent-glow)',
+      }}/>
+      {['front', 'back'].map(s => (
+        <button key={s} onClick={() => onChange(s)} style={{
+          all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '7px 0',
+          position: 'relative', zIndex: 1,
+          fontFamily: 'JetBrains Mono', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em',
+          color: side === s ? 'var(--accent)' : 'var(--text-3)', transition: 'color .2s ease',
+        }}>{s.toUpperCase()}</button>
+      ))}
+    </div>
+  );
 }
 
 // Decorative outline strokes — drawn under heat regions for definition

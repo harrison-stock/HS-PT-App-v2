@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { loadMuscleVolume } from '../lib/muscleVolume'
 import { loadExerciseMuscleMap } from '../lib/exercises'
 import { Hex, HexBackButton } from '../components/hex'
-import { BodyMap, Progress } from './Progress'
+import { BodyMap, Progress, SideSlider } from './Progress'
 import { InjuryThread } from './InjuryThread'
 import { MUSCLE_BODY, REGION_LABELS } from '../data/musclePaths'
 import { injuryTitle } from '../lib/injuries'
@@ -97,41 +97,53 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
 }
 
 // ── OVERVIEW — Everfit-style client home the coach jots notes on ──
+const relDays = (iso) => {
+  const n = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (n <= 0) return 'today';
+  if (n === 1) return 'yesterday';
+  if (n < 7) return `${n} days ago`;
+  if (n < 14) return '1 week ago';
+  return `${Math.floor(n / 7)} weeks ago`;
+};
+
 function OverviewTab({ c, go, onClose, onTab }) {
   const [d, setD] = React.useState(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const todayD = React.useMemo(() => { const x = new Date(); x.setHours(0, 0, 0, 0); return x; }, []);
+  const today = ymd(todayD);
   const table = c.managed ? 'managed_clients' : 'profiles';
+  const ago   = (n) => { const x = new Date(todayD); x.setDate(x.getDate() - n); return ymd(x); };
+  const ahead = (n) => { const x = new Date(todayD); x.setDate(x.getDate() + n); return ymd(x); };
 
   React.useEffect(() => {
     let alive = true;
     (async () => {
-      const [sessions, injuries, tasks, metrics, next, goal, notes] = await Promise.all([
+      const [sessions, injuries, metrics, wins, goal, notes, photos] = await Promise.all([
         supabase.from('workout_sessions').select('id, started_at, completed_at')
-          .eq('client_id', c.id).order('started_at', { ascending: false }).limit(4),
+          .eq('client_id', c.id).order('started_at', { ascending: false }).limit(8),
         supabase.from('client_injuries').select('id, muscle_group, laterality, severity').eq('client_id', c.id).is('resolved_at', null),
-        supabase.from('client_tasks').select('id').eq('client_id', c.id).is('completed_at', null),
-        supabase.from('body_metrics').select('weight_kg, recorded_at').eq('client_id', c.id)
-          .not('weight_kg', 'is', null).order('recorded_at', { ascending: false }).limit(2),
+        supabase.from('body_metrics').select('weight_kg, body_fat_pct, recorded_at').eq('client_id', c.id)
+          .gte('recorded_at', ago(120)).order('recorded_at', { ascending: true }),
         supabase.from('client_workouts')
-          .select('scheduled_date, programme_days(programme_phases(name, programmes(name)))')
-          .eq('client_id', c.id).gte('scheduled_date', today).eq('status', 'scheduled')
-          .order('scheduled_date').limit(1).maybeSingle(),
+          .select('scheduled_date, status, programme_days(programme_phases(name, programmes(name)))')
+          .eq('client_id', c.id).gte('scheduled_date', ago(30)).lte('scheduled_date', ahead(7))
+          .order('scheduled_date', { ascending: true }),
         supabase.from('client_goals').select('title, description, target_date').eq('client_id', c.id)
           .eq('status', 'active').order('created_at', { ascending: false }).limit(1).maybeSingle(),
         supabase.from(table).select('coach_notes, medical_notes').eq('id', c.id).maybeSingle(),
+        supabase.from('progress_photos').select('taken_on', { count: 'exact' }).eq('client_id', c.id)
+          .order('taken_on', { ascending: false }).limit(1),
       ]);
       if (!alive) return;
-      const m = metrics.data || [];
       setD({
         sessions: sessions.data || [],
         injuries: injuries.data || [],
-        openTasks: (tasks.data || []).length,
-        metric: m[0] || null,
-        prevMetric: m[1] || null,
-        next: next.data || null,
+        metrics: (metrics.data || []).filter(m => m.weight_kg != null || m.body_fat_pct != null),
+        wins: wins.data || [],
         goal: goal.data || null,
         coachNotes: notes.data?.coach_notes || '',
         medicalNotes: notes.data?.medical_notes || '',
+        photoCount: photos.count || 0,
+        lastPhoto: photos.data?.[0]?.taken_on || null,
       });
     })();
     return () => { alive = false; };
@@ -141,15 +153,27 @@ function OverviewTab({ c, go, onClose, onTab }) {
     await supabase.from(table).update({ [field]: value }).eq('id', c.id);
   };
 
-  const next = d?.next;
-  const phase = next?.programme_days?.programme_phases;
-  const progLabel = phase ? [phase.programmes?.name, phase.name].filter(Boolean).join(' · ') : null;
+  // ── Derived training stats ──
+  const wins = d?.wins || [];
+  const window7  = wins.filter(w => w.scheduled_date >= ago(6)  && w.scheduled_date <= today);
+  const window30 = wins.filter(w => w.scheduled_date >= ago(29) && w.scheduled_date <= today);
+  const nextWeek = wins.filter(w => w.scheduled_date >  today   && w.scheduled_date <= ahead(7));
+  const tracked = (arr) => arr.filter(w => w.status === 'completed').length;
+  const completed = wins.filter(w => w.status === 'completed' && w.scheduled_date <= today);
+  const lastWin = completed.length ? completed[completed.length - 1] : null;
+  const lastPhase = lastWin?.programme_days?.programme_phases;
+  const lastLabel = lastPhase ? [lastPhase.programmes?.name, lastPhase.name].filter(Boolean).join(' · ') : null;
+  const currentProg = (wins.find(w => w.scheduled_date >= today) || lastWin)?.programme_days?.programme_phases?.programmes?.name;
 
+  // ── Goal ──
   const goal = d?.goal;
-  const daysToGoal = goal?.target_date
-    ? Math.round((new Date(goal.target_date) - new Date(today)) / 86400000) : null;
+  const daysToGoal = goal?.target_date ? Math.round((new Date(goal.target_date) - todayD) / 86400000) : null;
 
-  const wDelta = d?.metric && d?.prevMetric ? +(d.metric.weight_kg - d.prevMetric.weight_kg).toFixed(1) : null;
+  // ── Metrics ──
+  const weights = (d?.metrics || []).map(m => m.weight_kg).filter(v => v != null).map(Number);
+  const bodyfats = (d?.metrics || []).map(m => m.body_fat_pct).filter(v => v != null).map(Number);
+  const latestW = weights.length ? weights[weights.length - 1] : null;
+  const wDelta  = weights.length >= 2 ? +(weights[weights.length - 1] - weights[0]).toFixed(1) : null;
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -165,27 +189,74 @@ function OverviewTab({ c, go, onClose, onTab }) {
         </div>
       )}
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-        <KpiCard label="STREAK"   value={c.streak || 0}          unit="d"   color="var(--c-amber)" />
-        <KpiCard label="THIS WK"  value={c.sessionsThisWeek || 0}            color="var(--accent)" />
-        <KpiCard label="CREDITS"  value={c.credits ?? 0}                     color="var(--accent-2)" />
-        <KpiCard label="INJURIES" value={d ? d.injuries.length : '—'}        color={d && d.injuries.length ? 'var(--c-coral)' : 'var(--text-2)'} />
-      </div>
+      {/* Training */}
+      <button onClick={() => onTab('training')} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+        <div className="card" style={{ padding: 14 }}>
+          <div className="label" style={{ marginBottom: 12 }}>// TRAINING</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <TrainStat top="LAST 7 DAYS" big={d ? `${tracked(window7)}/${window7.length}` : '—'} sub="TRACKED" />
+            <TrainStat top="LAST 30 DAYS" big={d ? `${tracked(window30)}/${window30.length}` : '—'} sub="TRACKED" divider />
+            <TrainStat top="NEXT WEEK" big={d ? `${nextWeek.length}` : '—'} sub="ASSIGNED" divider />
+          </div>
+          {d && lastWin && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <Mono>LAST WORKOUT</Mono>
+                <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {lastLabel || 'Workout'}
+                </div>
+              </div>
+              <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', flexShrink: 0 }}>{relDays(lastWin.scheduled_date)}</span>
+            </div>
+          )}
+        </div>
+      </button>
 
-      {/* Coach notes — the jot-down area */}
-      <NoteCard
-        label="// NOTES"
-        placeholder="Jot down anything about this client — preferences, cues, conversations, reminders…"
-        loading={!d}
-        initial={d?.coachNotes || ''}
-        onSave={saveNote('coach_notes')}
-      />
+      {/* Body metrics overview */}
+      <button onClick={() => onTab('data')} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+            <div className="label">// BODY METRICS</div>
+            <Mono>LAST 4 MONTHS</Mono>
+          </div>
+          {!d ? <Mono>LOADING…</Mono> : (
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                  <div>
+                    <Mono style={{ marginBottom: 2 }}>WEIGHT</Mono>
+                    <div className="h-bold" style={{ fontSize: 22 }}>
+                      {latestW != null ? <>{latestW}<span style={{ fontSize: 11, color: 'var(--text-3)' }}> kg</span></> : '—'}
+                    </div>
+                  </div>
+                  {wDelta != null && wDelta !== 0 && (
+                    <span className="mono" style={{ fontSize: 10, color: wDelta < 0 ? 'var(--accent)' : 'var(--c-amber)' }}>
+                      {wDelta > 0 ? '▲' : '▼'} {Math.abs(wDelta)}kg
+                    </span>
+                  )}
+                </div>
+                {weights.length >= 2
+                  ? <div style={{ marginTop: 6 }}><Sparkline values={weights} color="var(--accent)" /></div>
+                  : <Mono style={{ marginTop: 6 }}>Not enough weigh-ins to chart yet</Mono>}
+              </div>
+              <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                  <Mono>BODY FAT</Mono>
+                  <div className="h-bold" style={{ fontSize: 16 }}>
+                    {bodyfats.length ? <>{bodyfats[bodyfats.length - 1]}<span style={{ fontSize: 10, color: 'var(--text-3)' }}>%</span></> : <span style={{ color: 'var(--text-3)', fontSize: 11 }}>No data</span>}
+                  </div>
+                </div>
+                {bodyfats.length >= 2 && <div style={{ marginTop: 6 }}><Sparkline values={bodyfats} color="var(--c-amber)" height={32} /></div>}
+              </div>
+            </div>
+          )}
+        </div>
+      </button>
 
       {/* Goal & countdown */}
       <button onClick={() => onTab('goals')} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
         <div className="card" style={{ padding: 14 }}>
-          <div className="label" style={{ marginBottom: 8 }}>// GOAL</div>
+          <div className="label" style={{ marginBottom: 8 }}>// GOAL &amp; COUNTDOWN</div>
           {!d ? <Mono>LOADING…</Mono> : goal ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -198,9 +269,7 @@ function OverviewTab({ c, go, onClose, onTab }) {
               </div>
               {daysToGoal != null && (
                 <div style={{ textAlign: 'center', flexShrink: 0 }}>
-                  <div className="h-bold" style={{ fontSize: 26, lineHeight: 1, color: daysToGoal < 0 ? 'var(--c-coral)' : 'var(--accent)' }}>
-                    {Math.abs(daysToGoal)}
-                  </div>
+                  <div className="h-bold" style={{ fontSize: 26, lineHeight: 1, color: daysToGoal < 0 ? 'var(--c-coral)' : 'var(--accent)' }}>{Math.abs(daysToGoal)}</div>
                   <Mono style={{ marginTop: 3 }}>{daysToGoal < 0 ? 'DAYS OVER' : 'DAYS LEFT'}</Mono>
                 </div>
               )}
@@ -209,10 +278,19 @@ function OverviewTab({ c, go, onClose, onTab }) {
         </div>
       </button>
 
+      {/* Coach notes — the jot-down area */}
+      <NoteCard
+        label="// NOTES"
+        placeholder="Jot down anything about this client — preferences, cues, conversations, reminders…"
+        loading={!d}
+        initial={d?.coachNotes || ''}
+        onSave={saveNote('coach_notes')}
+      />
+
       {/* Limitations / injuries */}
       <NoteCard
-        label="// LIMITATIONS & MEDICAL"
-        placeholder="Note any injuries, conditions or limitations to train around…"
+        label="// LIMITATIONS / INJURIES"
+        placeholder={`Add any medical note or injury about ${c.name.split(' ')[0]}…`}
         accent="var(--c-coral)"
         loading={!d}
         initial={d?.medicalNotes || ''}
@@ -234,57 +312,94 @@ function OverviewTab({ c, go, onClose, onTab }) {
         )}
       </NoteCard>
 
-      {/* Body metrics + next session */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <button onClick={() => onTab('data')} style={{ all: 'unset', cursor: 'pointer' }}>
-          <div className="card" style={{ padding: 12, height: '100%', boxSizing: 'border-box' }}>
-            <div className="label" style={{ marginBottom: 6 }}>WEIGH-IN</div>
-            {d?.metric ? (
-              <>
-                <div className="h-bold" style={{ fontSize: 18 }}>{d.metric.weight_kg}<span style={{ fontSize: 10, color: 'var(--text-3)' }}>kg</span></div>
-                <Mono style={{ marginTop: 2 }}>
-                  {wDelta != null && wDelta !== 0 && (
-                    <span style={{ color: wDelta < 0 ? 'var(--accent)' : 'var(--c-amber)' }}>{wDelta > 0 ? '▲' : '▼'} {Math.abs(wDelta)}kg · </span>
-                  )}
-                  {new Date(d.metric.recorded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                </Mono>
-              </>
-            ) : <Mono>No data</Mono>}
-          </div>
-        </button>
-        <button onClick={() => onTab('training')} style={{ all: 'unset', cursor: 'pointer' }}>
-          <div className="card" style={{ padding: 12, height: '100%', boxSizing: 'border-box' }}>
-            <div className="label" style={{ marginBottom: 6 }}>NEXT SESSION</div>
-            {!d ? <Mono>…</Mono> : next ? (
-              <>
-                <div className="h-bold" style={{ fontSize: 15 }}>
-                  {next.scheduled_date === today ? 'TODAY' : new Date(next.scheduled_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}
-                </div>
-                {progLabel && <Mono style={{ marginTop: 3 }}>{progLabel.toUpperCase()}</Mono>}
-              </>
-            ) : <Mono>None scheduled</Mono>}
-          </div>
-        </button>
+      {/* Progress photo */}
+      <button onClick={() => onTab('data')} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+        <div className="card" style={{ padding: 14 }}>
+          <div className="label" style={{ marginBottom: 8 }}>// PROGRESS PHOTOS</div>
+          {!d ? <Mono>LOADING…</Mono> : d.photoCount > 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="h-bold" style={{ fontSize: 18 }}>{d.photoCount}<span style={{ fontSize: 11, color: 'var(--text-3)' }}> photo{d.photoCount === 1 ? '' : 's'}</span></div>
+              {d.lastPhoto && <Mono>LATEST · {new Date(d.lastPhoto).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</Mono>}
+            </div>
+          ) : <Mono>{c.name.split(' ')[0]} hasn’t uploaded any photos.</Mono>}
+        </div>
+      </button>
+
+      {/* Profile */}
+      <div className="card" style={{ padding: 14 }}>
+        <div className="label" style={{ marginBottom: 10 }}>// PROFILE</div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {c.email && <ProfileRow k="EMAIL" v={c.email} />}
+          {c.timezone && <ProfileRow k="TIMEZONE" v={c.timezone} />}
+          <ProfileRow k="PROGRAMME" v={currentProg || 'None assigned'} accent={!!currentProg} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 12 }}>
+          <KpiCard label="STREAK"   value={c.streak || 0} unit="d" color="var(--c-amber)" />
+          <KpiCard label="CREDITS"  value={c.credits ?? 0}         color="var(--accent-2)" />
+          <KpiCard label="INJURIES" value={d ? d.injuries.length : '—'} color={d && d.injuries.length ? 'var(--c-coral)' : 'var(--text-2)'} />
+        </div>
       </div>
 
-      {/* Recent updates */}
-      <div className="label">// RECENT UPDATES</div>
+      {/* Updates */}
+      <div className="label">// UPDATES</div>
       {!d && <Mono>LOADING…</Mono>}
       {d && d.sessions.length === 0 && <EmptyState>No sessions logged yet</EmptyState>}
       {d?.sessions.map(s => {
         const dur = s.completed_at ? Math.round((new Date(s.completed_at) - new Date(s.started_at)) / 60000) : null;
         return (
-          <div key={s.id} className="card" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, fontWeight: 600 }}>
-              {new Date(s.started_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+          <div key={s.id} className="card" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {c.name.split(' ')[0]} logged a workout for {new Date(s.started_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
             </span>
-            <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)' }}>
-              {dur != null ? `${dur} MIN` : 'IN PROGRESS'}{s.completed_at && <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>}
+            <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', flexShrink: 0 }}>
+              {relDays(s.started_at)}{dur != null && <> · {dur}M</>}{s.completed_at && <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>}
             </span>
           </div>
         );
       })}
     </div>
+  );
+}
+
+function TrainStat({ top, big, sub, divider }) {
+  return (
+    <div style={{ textAlign: 'center', padding: '0 4px', borderLeft: divider ? '1px solid var(--line)' : 'none' }}>
+      <Mono style={{ fontSize: 8 }}>{top}</Mono>
+      <div className="h-bold" style={{ fontSize: 22, margin: '4px 0 2px', color: 'var(--accent)', lineHeight: 1 }}>{big}</div>
+      <Mono style={{ fontSize: 8, color: 'var(--accent-2)' }}>{sub}</Mono>
+    </div>
+  );
+}
+
+function ProfileRow({ k, v, accent }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+      <Mono style={{ flexShrink: 0 }}>{k}</Mono>
+      <span style={{ fontSize: 12, color: accent ? 'var(--accent)' : 'var(--text-2)', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{v}</span>
+    </div>
+  );
+}
+
+// Tiny inline area sparkline for the metrics overview.
+function Sparkline({ values, color = 'var(--accent)', height = 44 }) {
+  const vals = (values || []).filter(v => v != null && !isNaN(v));
+  if (vals.length < 2) return null;
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = max - min || 1;
+  const w = 100, pad = 4;
+  const pts = vals.map((v, i) => [
+    (i / (vals.length - 1)) * w,
+    height - pad - ((v - min) / range) * (height - pad * 2),
+  ]);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  const area = `${line} L ${w} ${height} L 0 ${height} Z`;
+  const last = pts[pts.length - 1];
+  return (
+    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" width="100%" height={height} style={{ display: 'block', overflow: 'visible' }}>
+      <path d={area} fill={`color-mix(in srgb, ${color} 14%, transparent)`} stroke="none" />
+      <path d={line} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={last[0]} cy={last[1]} r="2.6" fill={color} stroke="var(--bg-2)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
@@ -510,11 +625,21 @@ function BodyTab({ c, trainerId }) {
 
   const sevVal = { mild: 0.35, moderate: 0.65, severe: 1.0 };
   // Per-side injury intensity: a side lights only if matched (or bilateral).
+  const injuryHits = React.useCallback((group, anat) =>
+    activeInjuries.filter(inj => inj.muscle_group === group && (inj.laterality === anat || inj.laterality === 'both' || anat === 'both')),
+  [activeInjuries]);
   const injuryIntensity = React.useCallback((group, anat) => {
-    const hits = activeInjuries.filter(inj => inj.muscle_group === group && (inj.laterality === anat || inj.laterality === 'both'));
+    const hits = injuryHits(group, anat);
     if (!hits.length) return 0;
     return Math.max(...hits.map(inj => sevVal[inj.severity] || 0.5));
-  }, [activeInjuries]);
+  }, [injuryHits]);
+  // Injured regions glow in their severity colour; the rest stay grey.
+  const injuryTint = React.useCallback((group, anat) => {
+    const hits = injuryHits(group, anat);
+    if (!hits.length) return null;
+    const worst = hits.reduce((a, b) => (sevVal[b.severity] || 0) > (sevVal[a.severity] || 0) ? b : a);
+    return SEV_COLOR[worst.severity];
+  }, [injuryHits]);
 
   const workedData = volume || {};
   const maxSets = Math.max(1, ...Object.values(workedData).map(d => d.sets));
@@ -537,18 +662,8 @@ function BodyTab({ c, trainerId }) {
         <BigToggle active={isInjuryMode}  onClick={() => { setMode('injuries'); setPicked(null); }}>INJURIES</BigToggle>
         <BigToggle active={!isInjuryMode} onClick={() => { setMode('worked');   setPicked(null); setEditPanel(null); }}>TRAINED</BigToggle>
       </div>
-      {/* Front / back — large */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        {['front','back'].map(s => (
-          <button key={s} onClick={() => { setSide(s); setPicked(null); }} style={{
-            flex: 1, padding: '11px', borderRadius: 10, cursor: 'pointer',
-            background: side === s ? 'var(--bg-3)' : 'var(--bg-2)',
-            border: '1px solid ' + (side === s ? 'var(--accent)' : 'var(--line)'),
-            color: side === s ? 'var(--accent)' : 'var(--text-3)',
-            fontFamily: 'JetBrains Mono', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em',
-          }}>{s.toUpperCase()}</button>
-        ))}
-      </div>
+      {/* Front / back — compact sliding toggle */}
+      <SideSlider side={side} onChange={(s) => { setSide(s); setPicked(null); }} />
 
       {/* Body map */}
       <BodyMap
@@ -558,6 +673,8 @@ function BodyTab({ c, trainerId }) {
         picked={picked}
         slugMap={isInjuryMode ? injurySlugMap : undefined}
         perSide={isInjuryMode}
+        neutralBase={isInjuryMode}
+        tintFor={isInjuryMode ? injuryTint : undefined}
         zoomable
         labels={REGION_LABELS}
         onPick={isInjuryMode

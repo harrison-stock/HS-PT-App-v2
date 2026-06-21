@@ -3,7 +3,7 @@ import { loadMuscleVolume } from '../lib/muscleVolume'
 import { loadExerciseMuscleMap } from '../lib/exercises'
 import { MUSCLE_LABELS } from '../data/index'
 import { MUSCLE_BODY, REGION_LABELS } from '../data/musclePaths'
-import { BodyMap } from './Progress'
+import { BodyMap, SideSlider } from './Progress'
 import { InjuryThread } from './InjuryThread'
 import { IconPlus, IconX2, IconChevronRight } from '../components/icons'
 import { SEV_COLOR, SEV_LABEL, SEV_VAL, LAT_LABEL, injuryTitle, loadInjuries, reportInjury } from '../lib/injuries'
@@ -32,17 +32,9 @@ export function Body({ userId, trainerId, go }) {
         <ViewTab active={view === 'injuries'} onClick={() => setView('injuries')}>INJURIES</ViewTab>
       </div>
 
-      {/* Front / back — large segmented control */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        {['front', 'back'].map(s => (
-          <button key={s} onClick={() => setSide(s)} style={{
-            flex: 1, padding: '12px', borderRadius: 10, cursor: 'pointer',
-            background: side === s ? 'var(--bg-3)' : 'var(--bg-2)',
-            border: '1px solid ' + (side === s ? 'var(--accent)' : 'var(--line)'),
-            color: side === s ? 'var(--accent)' : 'var(--text-3)',
-            fontFamily: 'JetBrains Mono', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em',
-          }}>{s === 'front' ? 'FRONT' : 'BACK'}</button>
-        ))}
+      {/* Front / back — compact sliding toggle */}
+      <div style={{ marginBottom: 12 }}>
+        <SideSlider side={side} onChange={setSide} />
       </div>
 
       {view === 'worked'
@@ -154,11 +146,22 @@ function InjuriesView({ userId, trainerId, side }) {
   const past   = list.filter(i => i.resolved_at);
 
   // A muscle's side lights only if an injury matches that side (or is bilateral).
+  const matchesAt = React.useCallback((g, anat) =>
+    active.filter(i => i.muscle_group === g && (i.laterality === anat || i.laterality === 'both' || anat === 'both')),
+  [active]);
   const intensity = React.useCallback((g, anat) => {
-    const hits = active.filter(i => i.muscle_group === g && (i.laterality === anat || i.laterality === 'both' || anat === 'both'));
+    const hits = matchesAt(g, anat);
     if (!hits.length) return 0;
     return Math.max(...hits.map(i => SEV_VAL[i.severity] || 0.5));
-  }, [active]);
+  }, [matchesAt]);
+  // Light an injured region in its severity colour (mild/moderate/severe),
+  // matching the legend; everything else stays grey until tapped.
+  const tintFor = React.useCallback((g, anat) => {
+    const hits = matchesAt(g, anat);
+    if (!hits.length) return null;
+    const worst = hits.reduce((a, b) => (SEV_VAL[b.severity] || 0) > (SEV_VAL[a.severity] || 0) ? b : a);
+    return SEV_COLOR[worst.severity];
+  }, [matchesAt]);
 
   const sel = [...picked].map(k => { const [g, a] = k.split('|'); return { key: k, g, a }; });
   const single = sel.length === 1 ? sel[0] : null;
@@ -187,7 +190,7 @@ function InjuriesView({ userId, trainerId, side }) {
     <>
       <div className="card" style={{ padding: 16, marginBottom: 12, background: 'radial-gradient(60% 80% at 50% 30%, rgba(238,106,106,0.06), transparent 70%), var(--bg-2)' }}>
         <BodyMap side={side} intensity={intensity} picked={picked} slugMap={slugMap} perSide zoomable
-          onPick={togglePick}
+          onPick={togglePick} neutralBase tintFor={tintFor}
           data={allGroups} labels={REGION_LABELS} heatColor="var(--c-coral)" />
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
           {Object.entries(SEV_COLOR).map(([sev, col]) => (
