@@ -369,6 +369,7 @@ function TasksSection({ tasks, onToggle }) {
     photo: IconCamera2,
     form:  IconDoc,
   };
+  const TASK_KIND_COLOR = { check: 'var(--accent)', log: 'var(--c-amber)', photo: 'var(--c-blue)', form: 'var(--c-pink)' };
   const open = tasks.filter((t) => !t.done);
   const doneCount = tasks.length - open.length;
   return (
@@ -391,6 +392,7 @@ function TasksSection({ tasks, onToggle }) {
         {tasks.map((t) => {
           const Icon = TASK_ICON[t.icon] || IconClipboard;
           const tint = t.done ? 'var(--text-3)' : t.overdue ? 'var(--c-coral)' : 'var(--c-amber)';
+          const kindCol = t.done ? 'var(--text-3)' : (TASK_KIND_COLOR[t.kind] || 'var(--accent)');
           return (
             <button key={t.id} onClick={() => onToggle(t)}
             style={{
@@ -402,9 +404,9 @@ function TasksSection({ tasks, onToggle }) {
                 borderColor: t.done ? 'var(--line)' : `color-mix(in srgb, ${tint} 30%, var(--line))`
               }}>
                 <Hex size={34} square style={{
-                  background: `color-mix(in srgb, ${tint} 16%, transparent)`,
-                  border: `1px solid color-mix(in srgb, ${tint} 40%, transparent)`,
-                  color: tint, flexShrink: 0
+                  background: `color-mix(in srgb, ${kindCol} 16%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${kindCol} 40%, transparent)`,
+                  color: kindCol, flexShrink: 0
                 }}>
                   <Icon size={16} />
                 </Hex>

@@ -22,7 +22,8 @@ const STATUS_OPTS = [
   { v: 'hybrid',    label: 'HYBRID' },
 ];
 const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-const TASK_ICON = { check: '✓', log: '◎', photo: '▣' };
+const TASK_ICON  = { check: '✓', log: '◎', photo: '▣', form: '✎' };
+const TASK_COLOR = { check: 'var(--accent)', log: 'var(--c-amber)', photo: 'var(--c-blue)', form: 'var(--c-pink)' };
 
 // ── Main component ───────────────────────────────────────────────
 export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go }) {
@@ -901,7 +902,7 @@ function TasksTab({ c, trainerId }) {
   const applyTemplate = async (t) => {
     await supabase.from('client_tasks').insert({
       client_id: c.id, trainer_id: trainerId,
-      title: t.title, kind: t.kind, due_date: null, form_id: t.kind === 'form' ? t.form_id : null,
+      title: t.title, kind: t.kind, due_date: t.due_date || null, form_id: t.kind === 'form' ? t.form_id : null,
     });
     notify({ recipientId: c.id, actorId: trainerId, kind: t.kind === 'form' ? 'form' : 'task',
       title: t.kind === 'form' ? 'New form to complete' : 'New task assigned', body: t.title, link: { screen: 'dashboard' } });
@@ -954,14 +955,17 @@ function TasksTab({ c, trainerId }) {
         <div>
           <div className="label" style={{ marginBottom: 6 }}>// FROM TEMPLATE</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {templates.map(t => (
-              <button key={t.id} onClick={() => applyTemplate(t)} className="mono" style={{
-                all: 'unset', cursor: 'pointer', fontSize: 9.5, fontWeight: 700, padding: '6px 10px', borderRadius: 999,
-                background: 'var(--accent-soft)', color: 'var(--accent)',
-                border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-              }}><IconPlus size={10}/> {t.title}</button>
-            ))}
+            {templates.map(t => {
+              const col = TASK_COLOR[t.kind] || 'var(--accent)';
+              return (
+                <button key={t.id} onClick={() => applyTemplate(t)} className="mono" style={{
+                  all: 'unset', cursor: 'pointer', fontSize: 9.5, fontWeight: 700, padding: '6px 10px', borderRadius: 999,
+                  background: `color-mix(in srgb, ${col} 14%, transparent)`, color: col,
+                  border: `1px solid color-mix(in srgb, ${col} 40%, transparent)`,
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                }}><IconPlus size={10}/> {t.title}</button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -974,15 +978,18 @@ function TasksTab({ c, trainerId }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <FieldLabel label="TYPE">
               <div style={{ display: 'flex', gap: 4 }}>
-                {['check','log','photo','form'].map(k => (
-                  <button key={k} onClick={() => setKind(k)} style={{
-                    all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center',
-                    padding: '7px 0', borderRadius: 7, fontSize: 8.5, fontFamily: 'JetBrains Mono', fontWeight: 700,
-                    background: kind === k ? 'var(--accent-soft)' : 'var(--bg-3)',
-                    border: `1px solid ${kind === k ? 'var(--accent)' : 'var(--line)'}`,
-                    color: kind === k ? 'var(--accent)' : 'var(--text-3)',
-                  }}>{k.toUpperCase()}</button>
-                ))}
+                {['check','log','photo','form'].map(k => {
+                  const col = TASK_COLOR[k] || 'var(--accent)';
+                  return (
+                    <button key={k} onClick={() => setKind(k)} style={{
+                      all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center',
+                      padding: '7px 0', borderRadius: 7, fontSize: 8.5, fontFamily: 'JetBrains Mono', fontWeight: 700,
+                      background: kind === k ? `color-mix(in srgb, ${col} 16%, transparent)` : 'var(--bg-3)',
+                      border: `1px solid ${kind === k ? col : 'var(--line)'}`,
+                      color: kind === k ? col : 'var(--text-3)',
+                    }}>{k.toUpperCase()}</button>
+                  );
+                })}
               </div>
             </FieldLabel>
             <FieldLabel label="DUE DATE (OPT)">
@@ -1019,20 +1026,21 @@ function TasksTab({ c, trainerId }) {
 }
 
 function TaskRow({ t, onToggle, onDelete, faded }) {
+  const col = TASK_COLOR[t.kind] || 'var(--accent)';
   return (
-    <div className="card" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, opacity: faded ? 0.55 : 1 }}>
+    <div className="card" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, opacity: faded ? 0.55 : 1, borderLeft: `2px solid ${col}` }}>
       <button onClick={() => onToggle(t)} style={{
         all: 'unset', cursor: 'pointer', width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-        background: t.completed_at ? 'var(--accent)' : 'var(--bg-3)',
-        border: `1px solid ${t.completed_at ? 'var(--accent)' : 'var(--line-strong)'}`,
+        background: t.completed_at ? col : `color-mix(in srgb, ${col} 12%, var(--bg-3))`,
+        border: `1px solid ${t.completed_at ? col : `color-mix(in srgb, ${col} 45%, var(--line-strong))`}`,
         display: 'grid', placeItems: 'center', color: 'var(--on-accent)',
       }}>
         {t.completed_at && <IconCheck size={11} sw={2.5}/>}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 600, textDecoration: t.completed_at ? 'line-through' : 'none', color: 'var(--text)' }}>{t.title}</div>
-        <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2 }}>
-          {TASK_ICON[t.kind]} {t.kind.toUpperCase()}{t.due_date ? ` · DUE ${new Date(t.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}
+        <div className="mono" style={{ fontSize: 9, color: col, marginTop: 2, fontWeight: 700 }}>
+          {TASK_ICON[t.kind]} {t.kind.toUpperCase()}<span style={{ color: 'var(--text-3)', fontWeight: 400 }}>{t.due_date ? ` · DUE ${new Date(t.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</span>
         </div>
       </div>
       <button onClick={() => onDelete(t.id)} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', padding: 4 }}>

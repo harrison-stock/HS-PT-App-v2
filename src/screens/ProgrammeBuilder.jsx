@@ -12,8 +12,11 @@ const TAG_COLORS = {
 };
 
 export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trainerId }) {
+  const isAdhoc = !!programme.is_adhoc;
   const [prog, setProg]             = React.useState(programme);
-  const [roadmapMode, setRoadmapMode] = React.useState(openRoadmap);
+  const [roadmapMode, setRoadmapMode] = React.useState(openRoadmap && !isAdhoc);
+  const [adhocName, setAdhocName]   = React.useState(programme.name);
+  const [adhocTag, setAdhocTag]     = React.useState(programme.tag || 'STRENGTH');
   const [phaseIdx, setPhaseIdx]     = React.useState(0);
   const [weekIdx, setWeekIdx]       = React.useState(0);
   const [dayIdx, setDayIdx]         = React.useState(0);
@@ -71,24 +74,16 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
   const move = (setter) => { setter(); setDirty(false); };
 
   // ── Save ─────────────────────────────────────────────────────
-  const saveDay = async () => {
-    if (!phase?.id || !day) return;
-    setSaving(true);
-    setSaveError(null);
-
+  // Writes the current day's sections/exercises/sets under a known phase id.
+  const writeDay = async (phid) => {
     const { data: dayRow, error: dayErr } = await supabase
       .from('programme_days')
       .upsert(
-        { phase_id: phase.id, week_index: weekIdx, day_of_week: dayIdx, intro: day.intro || '', notes: day.notes || '' },
+        { phase_id: phid, week_index: weekIdx, day_of_week: dayIdx, intro: day.intro || '', notes: day.notes || '' },
         { onConflict: 'phase_id,week_index,day_of_week' }
       )
       .select('id').single();
-
-    if (!dayRow) {
-      setSaving(false);
-      setSaveError(dayErr?.message || 'Save failed — have you run migration 3 (notes_tempo)?');
-      return;
-    }
+    if (!dayRow) throw new Error(dayErr?.message || 'Save failed — have you run migration 3 (notes_tempo)?');
 
     await supabase.from('workout_sections').delete().eq('day_id', dayRow.id);
 
@@ -120,10 +115,48 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
         );
       }
     }
+  };
 
-    await supabase.from('programmes').update({ updated_at: new Date().toISOString() }).eq('id', prog.id);
-    setSaving(false);
-    setDirty(false);
+  const saveDay = async () => {
+    if (!day) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      let pid = prog.id;
+      let phid = phase?.id;
+
+      // Ad-hoc workouts have no roadmap, so persist the programme + its single
+      // phase on first save before writing the day.
+      if (isAdhoc) {
+        if (!pid) {
+          const { data: np, error } = await supabase.from('programmes')
+            .insert({ trainer_id: trainerId, name: adhocName.trim() || 'Workout', tag: adhocTag, is_adhoc: true })
+            .select('id').single();
+          if (!np) throw new Error(error?.message || 'Could not create workout');
+          pid = np.id;
+        } else {
+          await supabase.from('programmes').update({ name: adhocName.trim() || 'Workout', tag: adhocTag }).eq('id', pid);
+        }
+        if (!phid) {
+          const { data: nph } = await supabase.from('programme_phases')
+            .insert({ programme_id: pid, phase_index: 0, name: 'Workout', focus: 'Ad-hoc', weeks: 1 })
+            .select('id').single();
+          phid = nph?.id;
+        }
+        setProg(p => ({ ...p, id: pid, name: adhocName.trim() || 'Workout', tag: adhocTag,
+          phaseList: [{ ...(p.phaseList[0] || {}), id: phid, name: 'Workout', focus: 'Ad-hoc', weeks: 1 }] }));
+      }
+
+      if (!phid) { setSaving(false); setSaveError('No phase to save into — open the roadmap first.'); return; }
+
+      await writeDay(phid);
+      await supabase.from('programmes').update({ updated_at: new Date().toISOString() }).eq('id', pid);
+      setSaving(false);
+      setDirty(false);
+    } catch (e) {
+      setSaving(false);
+      setSaveError(e.message || 'Save failed');
+    }
   };
 
   // ── Exercise edits ────────────────────────────────────────────
@@ -223,16 +256,26 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <HexBackButton onClick={onClose} size={36}/>
           <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
-            <div className="mono" style={{ fontSize: 8, color: 'var(--accent)', letterSpacing: '0.16em', fontWeight: 600 }}>// PROGRAMME BUILDER</div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prog.name}</div>
+            <div className="mono" style={{ fontSize: 8, color: 'var(--accent)', letterSpacing: '0.16em', fontWeight: 600 }}>// {isAdhoc ? 'WORKOUT BUILDER' : 'PROGRAMME BUILDER'}</div>
+            {isAdhoc ? (
+              <input value={adhocName} onChange={e => { setAdhocName(e.target.value); setDirty(true); }}
+                placeholder="Workout name"
+                style={{ width: '100%', boxSizing: 'border-box', textAlign: 'center', marginTop: 2,
+                  background: 'transparent', border: 'none', borderBottom: '1px solid var(--line)',
+                  color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 13, fontWeight: 600, outline: 'none', padding: '1px 0' }}/>
+            ) : (
+              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prog.name}</div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => setRoadmapMode(true)} style={{
-              all: 'unset', cursor: 'pointer',
-              padding: '8px 10px', borderRadius: 8,
-              background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
-              color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
-            }}>ROADMAP</button>
+            {!isAdhoc && (
+              <button onClick={() => setRoadmapMode(true)} style={{
+                all: 'unset', cursor: 'pointer',
+                padding: '8px 10px', borderRadius: 8,
+                background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+                color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+              }}>ROADMAP</button>
+            )}
             <button onClick={saveDay} disabled={saving || !dirty} style={{
               all: 'unset', cursor: dirty && !saving ? 'pointer' : 'default',
               padding: '8px 12px', borderRadius: 8,
@@ -247,7 +290,24 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
         </div>
       </div>
 
-      {/* Phase / Week / Day pickers */}
+      {/* Ad-hoc: just a tag picker (no phases/weeks/days) */}
+      {isAdhoc ? (
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)', background: 'var(--bg-1)' }}>
+          <div className="label" style={{ marginBottom: 6 }}>// TYPE</div>
+          <div style={{ display: 'flex', gap: 4, overflowX: 'auto', scrollbarWidth: 'none' }}>
+            {TAGS.map(t => (
+              <button key={t} onClick={() => { setAdhocTag(t); setDirty(true); }} style={{
+                all: 'unset', cursor: 'pointer', whiteSpace: 'nowrap', padding: '6px 11px', borderRadius: 999,
+                border: '1px solid ' + (adhocTag === t ? (TAG_COLORS[t] || 'var(--accent)') : 'var(--line-strong)'),
+                background: adhocTag === t ? `color-mix(in srgb, ${TAG_COLORS[t] || 'var(--accent)'} 16%, transparent)` : 'transparent',
+                color: adhocTag === t ? (TAG_COLORS[t] || 'var(--accent)') : 'var(--text-3)',
+                fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.08em', fontWeight: 700,
+              }}>{t}</button>
+            ))}
+          </div>
+        </div>
+      ) : (
+      /* Phase / Week / Day pickers */
       <div style={{ padding: '12px 14px 8px', borderBottom: '1px solid var(--line)', background: 'var(--bg-1)' }}>
         <div className="label" style={{ marginBottom: 6 }}>// PHASE</div>
         <div style={{ display: 'flex', gap: 4, overflowX: 'auto', scrollbarWidth: 'none', marginBottom: 10 }}>
@@ -296,6 +356,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
           ))}
         </div>
       </div>
+      )}
 
       {/* Body */}
       <div className="scroller" style={{ flex: 1, padding: '16px 16px 32px', minHeight: 0, width: '100%', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' }}>

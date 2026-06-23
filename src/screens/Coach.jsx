@@ -127,9 +127,10 @@ export function Coach({ go, trainerId, unread = 0, only }) {
     });
   };
 
-  // Ad-hoc workout = a one-off single-week "programme" with one phase.
+  // Ad-hoc workout = a one-off single-session "programme" (one phase, one
+  // week, one day). Skips the roadmap — straight into the day builder.
   const newAdhoc = () => {
-    setBuilderOpenRoadmap(true);
+    setBuilderOpenRoadmap(false);
     setBuilderProgramme({
       id: null,
       name: 'New Workout', tag: 'STRENGTH', is_adhoc: true,
@@ -145,7 +146,7 @@ export function Coach({ go, trainerId, unread = 0, only }) {
   const duplicateProgramme = async (prog) => {
     const { data: newProg } = await supabase
       .from('programmes')
-      .insert({ trainer_id: trainerId, name: prog.name + ' (Copy)', tag: prog.tag })
+      .insert({ trainer_id: trainerId, name: prog.name + ' (Copy)', tag: prog.tag, is_adhoc: !!prog.is_adhoc })
       .select('id').single();
     if (!newProg) return;
 
@@ -764,6 +765,7 @@ function AdhocTab({ workouts, loading, onNew, onEdit, onDuplicate, onDelete }) {
 
 // ── TASK TEMPLATES TAB ──────────────────────────────────────────
 const TT_KINDS = ['check', 'log', 'photo', 'form'];
+const TT_COLOR = { check: 'var(--accent)', log: 'var(--c-amber)', photo: 'var(--c-blue)', form: 'var(--c-pink)' };
 function TaskTemplatesTab({ trainerId }) {
   const [templates, setTemplates] = React.useState(null);
   const [forms, setForms] = React.useState([]);
@@ -771,6 +773,7 @@ function TaskTemplatesTab({ trainerId }) {
   const [title, setTitle] = React.useState('');
   const [kind, setKind] = React.useState('check');
   const [formId, setFormId] = React.useState('');
+  const [due, setDue] = React.useState('');
   const [saving, setSaving] = React.useState(false);
 
   const reload = () => supabase.from('task_templates').select('*').eq('trainer_id', trainerId)
@@ -786,9 +789,9 @@ function TaskTemplatesTab({ trainerId }) {
     setSaving(true);
     await supabase.from('task_templates').insert({
       trainer_id: trainerId, title: effTitle, kind, form_id: kind === 'form' ? formId : null,
-      sort_order: (templates?.length || 0),
+      due_date: due || null, sort_order: (templates?.length || 0),
     });
-    setSaving(false); setAdding(false); setTitle(''); setKind('check'); setFormId(''); reload();
+    setSaving(false); setAdding(false); setTitle(''); setKind('check'); setFormId(''); setDue(''); reload();
   };
 
   const del = async (id) => { await supabase.from('task_templates').delete().eq('id', id); reload(); };
@@ -811,18 +814,27 @@ function TaskTemplatesTab({ trainerId }) {
             <div className="label" style={{ marginBottom: 6 }}>TASK TITLE</div>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Log today's weight" style={ttInputSt}/>
           </div>
-          <div>
-            <div className="label" style={{ marginBottom: 6 }}>TYPE</div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {TT_KINDS.map(k => (
-                <button key={k} onClick={() => setKind(k)} style={{
-                  all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '7px 0', borderRadius: 7,
-                  fontSize: 8.5, fontFamily: 'JetBrains Mono', fontWeight: 700,
-                  background: kind === k ? 'var(--accent-soft)' : 'var(--bg-3)',
-                  border: `1px solid ${kind === k ? 'var(--accent)' : 'var(--line)'}`,
-                  color: kind === k ? 'var(--accent)' : 'var(--text-3)',
-                }}>{k.toUpperCase()}</button>
-              ))}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <div className="label" style={{ marginBottom: 6 }}>TYPE</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {TT_KINDS.map(k => {
+                  const col = TT_COLOR[k];
+                  return (
+                    <button key={k} onClick={() => setKind(k)} style={{
+                      all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '7px 0', borderRadius: 7,
+                      fontSize: 8.5, fontFamily: 'JetBrains Mono', fontWeight: 700,
+                      background: kind === k ? `color-mix(in srgb, ${col} 16%, transparent)` : 'var(--bg-3)',
+                      border: `1px solid ${kind === k ? col : 'var(--line)'}`,
+                      color: kind === k ? col : 'var(--text-3)',
+                    }}>{k.toUpperCase()}</button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <div className="label" style={{ marginBottom: 6 }}>DUE DATE (OPT)</div>
+              <input type="date" value={due} onChange={e => setDue(e.target.value)} style={{ ...ttInputSt, appearance: 'auto' }}/>
             </div>
           </div>
           {kind === 'form' && (
@@ -848,15 +860,21 @@ function TaskTemplatesTab({ trainerId }) {
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
-          {templates.map(t => (
-            <div key={t.id} className="card" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
-                <div className="mono" style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 2, letterSpacing: '0.08em' }}>{t.kind.toUpperCase()}</div>
+          {templates.map(t => {
+            const col = TT_COLOR[t.kind] || 'var(--accent)';
+            return (
+              <div key={t.id} className="card" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, borderLeft: `2px solid ${col}` }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                  <div className="mono" style={{ fontSize: 9, color: col, marginTop: 2, letterSpacing: '0.08em', fontWeight: 700 }}>
+                    {t.kind.toUpperCase()}<span style={{ color: 'var(--text-3)', fontWeight: 400 }}>{t.due_date ? ` · DUE ${new Date(t.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</span>
+                  </div>
+                </div>
+                <button onClick={() => del(t.id)} aria-label="Delete template" style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', padding: 4 }}><IconX2 size={13}/></button>
               </div>
-              <button onClick={() => del(t.id)} aria-label="Delete template" style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', padding: 4 }}><IconX2 size={13}/></button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </>
