@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { HexBackButton, HexShape } from '../components/hex'
 import { IconChevronRight, IconX2 } from '../components/icons'
 import { loadExercises, videoThumb } from '../lib/exercises'
+import { MasterPlanner } from './MasterPlanner'
 
 const IMG_FALLBACK = 'https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=200&q=70';
 const TAGS = ['STRENGTH','ONBOARD','REHAB','ENDURANCE','HYBRID','SPORT'];
@@ -30,6 +31,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
   const [switchingEx, setSwitchingEx]     = React.useState(null); // { sIdx, eIdx }
   const [addingSection, setAddingSection] = React.useState(null); // sIdx when picking from catalogue
   const [altFor, setAltFor]               = React.useState(null); // { sIdx, eIdx } when adding an alternate
+  const [showMaster, setShowMaster]       = React.useState(false);
 
   const phase = prog.phaseList[phaseIdx];
   const days  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -269,6 +271,14 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             {!isAdhoc && (
+              <button onClick={() => setShowMaster(true)} style={{
+                all: 'unset', cursor: 'pointer',
+                padding: '8px 10px', borderRadius: 8,
+                background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+                color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+              }}>MASTER</button>
+            )}
+            {!isAdhoc && (
               <button onClick={() => setRoadmapMode(true)} style={{
                 all: 'unset', cursor: 'pointer',
                 padding: '8px 10px', borderRadius: 8,
@@ -456,6 +466,18 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
           </>
         )}
       </div>
+
+      {showMaster && (
+        <MasterPlanner
+          programme={prog}
+          onClose={() => setShowMaster(false)}
+          onPickDay={(pi, wi, di) => {
+            move(() => { setPhaseIdx(pi); setWeekIdx(wi); setDayIdx(di); });
+            setShowMaster(false);
+            setRoadmapMode(false);
+          }}
+        />
+      )}
     </div>
   );
 }
