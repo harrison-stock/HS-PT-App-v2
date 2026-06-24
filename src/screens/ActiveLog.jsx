@@ -30,6 +30,7 @@ export function ActiveLog({ go, dayId, userId, resume }) {
   const programmaticRef = React.useRef(false);
   const progClearRef = React.useRef(null);
   const [dbLoading, setDbLoading] = React.useState(!!dayId);
+  const [loadError, setLoadError] = React.useState(false);
   const [dayIntro, setDayIntro] = React.useState('');
   const sessionStartRef = React.useRef(new Date().toISOString());
 
@@ -56,12 +57,13 @@ export function ActiveLog({ go, dayId, userId, resume }) {
   React.useEffect(() => {
     if (!dayId) return;
     setDbLoading(true);
+    setLoadError(false);
     supabase
       .from('programme_days')
-      .select(`id, intro, workout_sections ( id, kind, title, sort_order, section_exercises ( id, name, img_url, tempo, coach_notes, superset_group, alternates, sort_order, exercise_sets ( set_index, reps, reps_text, weight_kg, rest_secs, kind ) ) )`)
+      .select(`id, intro, workout_sections ( id, kind, title, sort_order, section_exercises ( id, name, img_url, timed, tempo, coach_notes, superset_group, alternates, sort_order, exercise_sets ( set_index, reps, reps_text, weight_kg, rest_secs, time_secs, kind ) ) )`)
       .eq('id', dayId)
       .single()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
         if (data) {
           const SECTION_TO_PHASE = { PULSE_RAISER: 'pulse', BANDED: 'banded', MAIN: 'main', COOLDOWN: 'cooldown' };
           const rows = [];
@@ -70,12 +72,20 @@ export function ActiveLog({ go, dayId, userId, resume }) {
             for (const ex of (sec.section_exercises || []).sort((a, b) => a.sort_order - b.sort_order)) {
               const sets = (ex.exercise_sets || [])
                 .sort((a, b) => a.set_index - b.set_index)
-                .map(st => ({
-                  reps: st.reps_text || String(st.reps ?? 8),
-                  kg: parseFloat(st.weight_kg) || null,
-                  kind: (st.kind && st.kind !== 'WORK') ? st.kind : undefined,
-                  done: false, active: false, rpe: null,
-                }));
+                .map(st => (ex.timed
+                  ? {
+                      time: true,
+                      reps: formatMMSS(parseInt(st.time_secs) || 0),
+                      kg: null,
+                      kind: (st.kind && st.kind !== 'WORK') ? st.kind : undefined,
+                      done: false, active: false, rpe: null,
+                    }
+                  : {
+                      reps: st.reps_text || String(st.reps ?? 8),
+                      kg: parseFloat(st.weight_kg) || null,
+                      kind: (st.kind && st.kind !== 'WORK') ? st.kind : undefined,
+                      done: false, active: false, rpe: null,
+                    }));
               rows.push({
                 id: ex.id, name: ex.name, img: ex.img_url || '',
                 base: { name: ex.name, img: ex.img_url || '' },
@@ -107,8 +117,14 @@ export function ActiveLog({ go, dayId, userId, resume }) {
           } else if (userId) {
             clearActiveWorkout(userId);
           }
+          // A real assigned day must have exercises — never fall back to the
+          // built-in demo against a client's actual session.
           if (rows.length > 0) setExercises(rows);
+          else setLoadError(true);
           setDayIntro(data.intro || '');
+        } else {
+          setLoadError(true);
+          if (error) console.error('load workout', error);
         }
         setDbLoading(false);
       });
@@ -153,8 +169,8 @@ export function ActiveLog({ go, dayId, userId, resume }) {
           ex.sets.forEach((s, i) => {
             if (s.done) logRows.push({
               session_id: ws.id, exercise_id: ex.id, set_index: i,
-              actual_reps: typeof s.reps === 'number' ? s.reps : (parseInt(s.reps) || null),
-              actual_weight_kg: s.kg || null,
+              actual_reps: s.time ? null : (typeof s.reps === 'number' ? s.reps : (parseInt(s.reps) || null)),
+              actual_weight_kg: s.time ? null : (s.kg || null),
               actual_time_secs: s.time ? parseTimeToSeconds(s.reps) : null,
               intensity: s.rpe ? Math.round(s.rpe * 2.5) : null,
             });
@@ -299,6 +315,21 @@ export function ActiveLog({ go, dayId, userId, resume }) {
   if (dbLoading) return (
     <div style={{ height: '100%', display: 'grid', placeItems: 'center', background: 'var(--bg-0)' }}>
       <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.2em' }}>LOADING WORKOUT…</div>
+    </div>
+  );
+
+  if (loadError) return (
+    <div style={{ height: '100%', display: 'grid', placeItems: 'center', background: 'var(--bg-0)', padding: 28 }}>
+      <div style={{ textAlign: 'center', maxWidth: 300 }}>
+        <Hex size={46} square style={{ margin: '0 auto 14px', background: 'color-mix(in srgb, var(--c-coral) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--c-coral) 45%, transparent)', color: 'var(--c-coral)' }}>
+          <IconX2 size={20} />
+        </Hex>
+        <div className="h-bold" style={{ fontSize: 18, marginBottom: 8 }}>WORKOUT UNAVAILABLE</div>
+        <div className="mono" style={{ fontSize: 11.5, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 22 }}>
+          This session couldn't be loaded or has no exercises yet. Please check your connection or contact your coach.
+        </div>
+        <button onClick={() => go('workouts')} className="btn-primary" style={{ width: '100%', color: 'var(--heading-deep)' }}>BACK TO WORKOUTS</button>
+      </div>
     </div>
   );
 

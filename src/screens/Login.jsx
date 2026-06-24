@@ -1,6 +1,5 @@
 import React from 'react'
 import { supabase } from '../lib/supabase'
-import { HexShape } from '../components/hex'
 
 export function Login() {
   const invite = React.useMemo(() => {
@@ -69,12 +68,12 @@ export function Login() {
       <div style={{ marginBottom: 36, textAlign: 'center' }}>
         <div style={{
           display: 'flex', justifyContent: 'center', marginBottom: 16,
-          filter: 'drop-shadow(0 0 calc(18px * var(--glow)) var(--accent-glow))',
+          filter: 'drop-shadow(0 0 calc(22px * var(--glow)) var(--accent-glow))',
         }}>
-          <HexShape size={52} fill="var(--accent)" />
+          <img src="/logo-mark.png" alt="HS PT" width={104} style={{ display: 'block', height: 'auto' }} />
         </div>
         <div className="h-bold" style={{ fontSize: 20, letterSpacing: '0.1em', color: 'var(--heading-deep)' }}>
-          PT TRACKER
+          HS PT
         </div>
         <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.18em', marginTop: 5 }}>
           HARRISON STOCK PERFORMANCE
