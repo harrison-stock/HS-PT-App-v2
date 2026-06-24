@@ -1,6 +1,7 @@
 import React from 'react'
 import { HexBackButton, Hex } from '../components/hex'
 import { IconSun, IconMoon, IconCheck } from '../components/icons'
+import { InstallPrompt } from './InstallPrompt'
 
 export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeChange, home = 'dashboard' }) {
   const [activeTab, setActiveTab] = React.useState('profile');
@@ -66,6 +67,7 @@ function ProfileTab({ user, onSave, onLogout, theme, onThemeChange }) {
   const [name, setName] = React.useState(user?.name || '');
   const [email, setEmail] = React.useState(user?.email || '');
   const [dob, setDob] = React.useState(user?.dob || '');
+  const [showInstall, setShowInstall] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
 
   const dirty = name.trim() !== (user?.name || '') || email.trim() !== (user?.email || '') || dob !== (user?.dob || '');
@@ -135,9 +137,25 @@ function ProfileTab({ user, onSave, onLogout, theme, onThemeChange }) {
         {saved ? <><IconCheck size={14} /> SAVED</> : 'SAVE CHANGES'}
       </button>
 
+      {/* Install / add to home screen */}
+      <button onClick={() => setShowInstall(true)} style={{
+        width: '100%', marginTop: 14,
+        padding: '13px 16px', borderRadius: 12,
+        background: 'transparent',
+        border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--line))',
+        color: 'var(--accent)', cursor: 'pointer',
+        fontFamily: 'JetBrains Mono, monospace',
+        fontWeight: 600, fontSize: 13, letterSpacing: '0.08em', textTransform: 'uppercase',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+      }}>
+        Add to Home Screen
+      </button>
+
+      {showInstall && <InstallPrompt onClose={() => setShowInstall(false)} />}
+
       {/* Log out */}
       <button onClick={onLogout} style={{
-        width: '100%', marginTop: 28,
+        width: '100%', marginTop: 14,
         padding: '13px 16px', borderRadius: 12,
         background: 'transparent',
         border: '1px solid color-mix(in srgb, var(--c-coral) 45%, var(--line))',

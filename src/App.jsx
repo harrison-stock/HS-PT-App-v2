@@ -17,6 +17,8 @@ import { Forms } from './screens/Forms'
 import { SessionResults } from './screens/ActiveLog'
 import { unreadCount, subscribeNotifications, maybeBrowserNotify, requestNotifyPermission } from './lib/notifications'
 import { loadActiveWorkout, clearActiveWorkout } from './lib/activeWorkout'
+import { InstallPrompt } from './screens/InstallPrompt'
+import { isStandalone } from './lib/installPrompt'
 
 const ACCENTS = {
   sea:      { c: '#46BBC0', soft: 'rgba(70,187,192,0.16)',  glow: 'rgba(70,187,192,0.45)',  on: '#06262A' },
@@ -48,6 +50,7 @@ export default function App() {
   const [logDayId, setLogDayId] = React.useState(null);
   const [logResume, setLogResume] = React.useState(false);
   const [resumePrompt, setResumePrompt] = React.useState(null);
+  const [showInstall, setShowInstall] = React.useState(false);
   const [resultsDayId, setResultsDayId] = React.useState(null);
   const [clientViewId, setClientViewId] = React.useState(null);
   const [clientViewName, setClientViewName] = React.useState(null);
@@ -144,6 +147,21 @@ export default function App() {
     if (!resumeUid) { setResumePrompt(null); return; }
     setResumePrompt(loadActiveWorkout(resumeUid));
   }, [resumeUid]);
+
+  // First time signed in (and not already installed), offer "add to home screen".
+  React.useEffect(() => {
+    if (!session || isStandalone()) return;
+    let seen = false;
+    try { seen = !!localStorage.getItem('hs_a2hs_seen'); } catch (e) {}
+    if (seen) return;
+    const t = setTimeout(() => setShowInstall(true), 1400);
+    return () => clearTimeout(t);
+  }, [session]);
+
+  const closeInstall = () => {
+    setShowInstall(false);
+    try { localStorage.setItem('hs_a2hs_seen', '1'); } catch (e) {}
+  };
 
   const navigate = (target, opts) => {
     if (target === 'preview') {
@@ -293,6 +311,8 @@ export default function App() {
           onDiscard={() => { clearActiveWorkout(resumeUid); setResumePrompt(null); }}
         />
       )}
+
+      {showInstall && !resumePrompt && screen !== 'log' && <InstallPrompt onClose={closeInstall}/>}
     </div>
   );
 }
