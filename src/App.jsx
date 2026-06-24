@@ -1,7 +1,7 @@
 import React from 'react'
 import { supabase } from './lib/supabase'
 import { HexShape } from './components/hex'
-import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt, IconActivity, IconDumbbell, IconDoc } from './components/icons'
+import { IconHome, IconCalendar, IconChart, IconBook, IconUser, IconBolt, IconActivity, IconDumbbell, IconDoc, IconPlay } from './components/icons'
 import { Login } from './screens/Login'
 import { Dashboard } from './screens/Dashboard'
 import { Workouts } from './screens/Workouts'
@@ -16,6 +16,7 @@ import { Exercises } from './screens/Exercises'
 import { Forms } from './screens/Forms'
 import { SessionResults } from './screens/ActiveLog'
 import { unreadCount, subscribeNotifications, maybeBrowserNotify, requestNotifyPermission } from './lib/notifications'
+import { loadActiveWorkout, clearActiveWorkout } from './lib/activeWorkout'
 
 const ACCENTS = {
   sea:      { c: '#46BBC0', soft: 'rgba(70,187,192,0.16)',  glow: 'rgba(70,187,192,0.45)',  on: '#06262A' },
@@ -45,6 +46,8 @@ export default function App() {
   const [screen, setScreen] = React.useState('dashboard');
   const [previewWorkoutId, setPreviewWorkoutId] = React.useState(null);
   const [logDayId, setLogDayId] = React.useState(null);
+  const [logResume, setLogResume] = React.useState(false);
+  const [resumePrompt, setResumePrompt] = React.useState(null);
   const [resultsDayId, setResultsDayId] = React.useState(null);
   const [clientViewId, setClientViewId] = React.useState(null);
   const [clientViewName, setClientViewName] = React.useState(null);
@@ -135,6 +138,13 @@ export default function App() {
     if (session && screen !== 'notifications') unreadCount(session.user.id).then(setUnread);
   }, [screen, session]);
 
+  // On (re)entering as a user, check for an interrupted workout to offer resuming.
+  const resumeUid = clientViewId || session?.user?.id || null;
+  React.useEffect(() => {
+    if (!resumeUid) { setResumePrompt(null); return; }
+    setResumePrompt(loadActiveWorkout(resumeUid));
+  }, [resumeUid]);
+
   const navigate = (target, opts) => {
     if (target === 'preview') {
       setScreen('workouts');
@@ -149,7 +159,7 @@ export default function App() {
       setPreviewWorkoutId(null);
       return;
     }
-    if (target === 'log') setLogDayId(opts?.dayId || null);
+    if (target === 'log') { setLogDayId(opts?.dayId || null); setLogResume(!!opts?.resume); }
     if (target === 'sessionresults') setResultsDayId(opts?.dayId || null);
     // While controlling a client, navigation stays in their app until the coach
     // exits (which routes to 'coach').
@@ -210,7 +220,7 @@ export default function App() {
 
   let ScreenEl;
   if (screen === 'workouts')        ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId} userId={activeUserId}/>;
-  else if (screen === 'log')        ScreenEl = <ActiveLog go={navigate} dayId={logDayId} userId={activeUserId}/>;
+  else if (screen === 'log')        ScreenEl = <ActiveLog go={navigate} dayId={logDayId} userId={activeUserId} resume={logResume}/>;
   else if (screen === 'progress')   ScreenEl = <Progress go={navigate} userId={activeUserId}/>;
   else if (screen === 'body')       ScreenEl = <Body go={navigate} userId={activeUserId} trainerId={impersonating ? session.user.id : profile?.trainer_id}/>;
   else if (screen === 'resources')  ScreenEl = <Resources go={navigate} userId={session.user.id} isTrainer={navIsTrainer}/>;
@@ -275,6 +285,37 @@ export default function App() {
         {ScreenEl}
       </div>
       {showNav && <BottomNav screen={screen} go={navigate} isTrainer={navIsTrainer}/>}
+
+      {resumePrompt && screen !== 'log' && (
+        <ResumeWorkoutPrompt
+          snap={resumePrompt}
+          onResume={() => { const s = resumePrompt; setResumePrompt(null); navigate('log', { dayId: s.dayId, resume: true }); }}
+          onDiscard={() => { clearActiveWorkout(resumeUid); setResumePrompt(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ResumeWorkoutPrompt({ snap, onResume, onDiscard }) {
+  const setsDone = (snap.exercises || []).reduce((n, e) => n + (e.sets || []).filter(s => s.done).length, 0);
+  const secs = snap.sessionTime || 0;
+  const elapsed = `${Math.floor(secs / 60)}m`;
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(6,10,12,0.66)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: 28, animation: 'fadeIn .15s ease' }}>
+      <div className="card" style={{ width: '100%', maxWidth: 320, padding: 22, textAlign: 'center', background: 'var(--bg-2)' }}>
+        <div style={{ width: 46, height: 46, borderRadius: 12, margin: '0 auto 14px', display: 'grid', placeItems: 'center', background: 'var(--accent-soft)', border: '1px solid var(--accent)', color: 'var(--accent)' }}>
+          <IconPlay size={20}/>
+        </div>
+        <div className="h-bold" style={{ fontSize: 19, marginBottom: 8 }}>CONTINUE YOUR WORKOUT?</div>
+        <div className="mono" style={{ fontSize: 11.5, color: 'var(--text-2)', lineHeight: 1.55, marginBottom: 18 }}>
+          You have a session in progress{setsDone > 0 ? <> — <strong style={{ color: 'var(--text)' }}>{setsDone} set{setsDone === 1 ? '' : 's'}</strong> logged, {elapsed} in</> : ''}. Pick up where you left off?
+        </div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <button onClick={onResume} className="btn-primary" style={{ width: '100%', color: 'var(--heading-deep)' }}>RESUME WORKOUT</button>
+          <button onClick={onDiscard} className="btn-ghost" style={{ width: '100%', color: 'var(--c-coral)', borderColor: 'color-mix(in srgb, var(--c-coral) 40%, var(--line-strong))' }}>DISCARD</button>
+        </div>
+      </div>
     </div>
   );
 }

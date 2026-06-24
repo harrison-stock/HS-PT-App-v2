@@ -7,12 +7,13 @@ import { Hex, HexBackButton } from '../components/hex'
 import { IconPause, IconPlay, IconCheck, IconX2, IconChevronLeft, IconChevronRight, IconPlus, IconTrophy, IconTimer, IconFlame, IconBand, IconDumbbell, IconLeaf, IconActivity, IconSwap, IconTrend, IconMetronome, IconClipboard } from '../components/icons'
 import { ExerciseComments } from './ExerciseComments'
 import { notify, trainerOf } from '../lib/notifications'
+import { saveActiveWorkout, loadActiveWorkout, clearActiveWorkout } from '../lib/activeWorkout'
 
 // Active Workout — Everfit-style swipeable cards.
 // One full-page card per exercise; horizontal snap-scroll between them.
 // Phases (Pulse · Banded · Main · Cooldown) are pinned as a strip up top.
 // Tap exercise title to see/swap alternatives.
-export function ActiveLog({ go, dayId, userId }) {
+export function ActiveLog({ go, dayId, userId, resume }) {
   const [exercises, setExercises] = React.useState(ACTIVE_EXERCISES);
   const [activeIdx, setActiveIdx] = React.useState(0); // start on Pulse warm-up
   const [sessionTime, setSessionTime] = React.useState(0);
@@ -86,12 +87,58 @@ export function ActiveLog({ go, dayId, userId }) {
               });
             }
           }
+          // Resume an interrupted session: overlay saved set progress by
+          // exercise id; otherwise clear any stale snapshot for a fresh start.
+          if (resume && userId) {
+            const snap = loadActiveWorkout(userId);
+            if (snap && snap.dayId === dayId && rows.length > 0) {
+              const byId = {};
+              (snap.exercises || []).forEach(e => { byId[e.id] = e.sets || []; });
+              rows.forEach(ex => {
+                const saved = byId[ex.id];
+                if (saved) ex.sets = ex.sets.map((s, i) => saved[i]
+                  ? { ...s, done: !!saved[i].done, reps: saved[i].reps ?? s.reps, kg: saved[i].kg ?? s.kg, rpe: saved[i].rpe ?? s.rpe }
+                  : s);
+              });
+              setActiveIdx(Math.min(snap.activeIdx || 0, rows.length - 1));
+              setSessionTime(snap.sessionTime || 0);
+              sessionStartRef.current = snap.startedAt || sessionStartRef.current;
+            }
+          } else if (userId) {
+            clearActiveWorkout(userId);
+          }
           if (rows.length > 0) setExercises(rows);
           setDayIntro(data.intro || '');
         }
         setDbLoading(false);
       });
   }, [dayId]);
+
+  // ── Persist in-progress state so a crash/close can be resumed ──
+  const liveRef = React.useRef({ sessionTime: 0, activeIdx: 0, exercises });
+  React.useEffect(() => { liveRef.current = { sessionTime, activeIdx, exercises }; }, [sessionTime, activeIdx, exercises]);
+
+  const persist = React.useCallback(() => {
+    if (!dayId || !userId || complete) return;
+    const cur = liveRef.current;
+    saveActiveWorkout(userId, {
+      dayId, startedAt: sessionStartRef.current,
+      sessionTime: cur.sessionTime, activeIdx: cur.activeIdx,
+      label: dayIntro || '',
+      exercises: cur.exercises.map(ex => ({ id: ex.id, sets: (ex.sets || []).map(s => ({ done: !!s.done, reps: s.reps, kg: s.kg, rpe: s.rpe })) })),
+    });
+  }, [dayId, userId, complete, dayIntro]);
+
+  // Snapshot on meaningful progress, plus a heartbeat for the running clock.
+  React.useEffect(() => { if (!dbLoading) persist(); }, [exercises, activeIdx, dbLoading, persist]);
+  React.useEffect(() => {
+    if (!dayId || !userId) return;
+    const t = setInterval(() => { if (!paused && !complete) persist(); }, 5000);
+    return () => clearInterval(t);
+  }, [dayId, userId, paused, complete, persist]);
+
+  // Once finished, drop the snapshot so we don't re-prompt.
+  React.useEffect(() => { if (complete && userId) clearActiveWorkout(userId); }, [complete, userId]);
 
   const saveSession = async () => {
     if (!dayId || !userId) return;
@@ -527,7 +574,7 @@ export function ActiveLog({ go, dayId, userId }) {
                 Your progress for this session won't be saved. Are you sure?
               </div>
               <div style={{ display: 'grid', gap: 8 }}>
-                <button onClick={() => go('dashboard')} style={{
+                <button onClick={() => { if (userId) clearActiveWorkout(userId); go('dashboard'); }} style={{
                   width: '100%', padding: '12px 16px', borderRadius: 11,
                   background: 'var(--c-coral)', color: '#fff', border: 'none', cursor: 'pointer',
                   fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase'
