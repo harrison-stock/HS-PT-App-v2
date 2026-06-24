@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { HexBackButton } from '../components/hex'
 import { IconChevronRight, IconPlus, IconX2 } from '../components/icons'
 import { ExercisePicker } from './ProgrammeBuilder'
+import { BANDS, bandOf } from '../components/bands'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SECTION_LABEL = { MAIN: 'Workout', PULSE_RAISER: 'Pulse Raiser', BANDED: 'Activation', COOLDOWN: 'Cooldown' };
@@ -22,7 +23,7 @@ const parseClock = (v) => {
   return parseInt(v) || 0;
 };
 
-const SELECT = 'id, phase_id, week_index, day_of_week, intro, workout_sections(id, title, kind, sort_order, section_exercises(id, name, img_url, timed, alternates, superset_group, sort_order, exercise_sets(id, set_index, kind, reps_text, reps, weight_kg, rest_secs, time_secs)))';
+const SELECT = 'id, phase_id, week_index, day_of_week, intro, workout_sections(id, title, kind, sort_order, section_exercises(id, name, img_url, timed, banded, alternates, superset_group, sort_order, exercise_sets(id, set_index, kind, reps_text, reps, weight_kg, band, rest_secs, time_secs)))';
 
 // Master Planner — every day of the programme pulled out at once, fully editable
 // inline. Two layouts: same day across all weeks ("Week by Week"), or all seven
@@ -232,7 +233,7 @@ function PlannerExercise({ ex, idx, onPatchSet, onAddSet, onDelSet, onDelExercis
         <div style={{ marginLeft: 26 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 1fr 1fr 16px', gap: 3, fontSize: 7.5, marginBottom: 2 }} className="mono">
             <span style={{ color: 'var(--text-3)' }}>SET</span>
-            <span style={{ color: 'var(--text-3)' }}>{ex.timed ? 'TIME' : 'KG'}</span>
+            <span style={{ color: 'var(--text-3)' }}>{ex.timed ? 'TIME' : ex.banded ? 'BAND' : 'KG'}</span>
             <span style={{ color: 'var(--text-3)' }}>{ex.timed ? '' : 'REPS'}</span>
             <span style={{ color: 'var(--text-3)' }}>REST</span>
             <span/>
@@ -244,6 +245,11 @@ function PlannerExercise({ ex, idx, onPatchSet, onAddSet, onDelSet, onDelExercis
                 <>
                   <Cell value={st.time_secs} format={fmtSecs} onCommit={v => onPatchSet(st.id, { time_secs: parseClock(v) })}/>
                   <span/>
+                </>
+              ) : ex.banded ? (
+                <>
+                  <BandCycle band={st.band} onChange={b => onPatchSet(st.id, { band: b })}/>
+                  <Cell value={st.reps_text || st.reps || ''} onCommit={v => onPatchSet(st.id, { reps_text: v, reps: parseInt(v) || 0 })}/>
                 </>
               ) : (
                 <>
@@ -262,6 +268,23 @@ function PlannerExercise({ ex, idx, onPatchSet, onAddSet, onDelSet, onDelExercis
         </div>
       )}
     </div>
+  );
+}
+
+// Compact band cell — tap the swatch to cycle through band levels.
+function BandCycle({ band, onChange }) {
+  const b = bandOf(band);
+  const next = () => {
+    const idx = BANDS.findIndex(x => x.key === band);
+    onChange(BANDS[(idx + 1) % BANDS.length].key);
+  };
+  return (
+    <button onClick={next} title="Tap to change band" style={{
+      all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0,
+    }}>
+      <span style={{ width: 11, height: 11, borderRadius: 3, flexShrink: 0, background: b ? b.color : 'var(--bg-3)', border: '1px solid rgba(255,255,255,0.35)' }}/>
+      <span className="mono" style={{ fontSize: 8, fontWeight: 700, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b ? b.short : 'BAND'}</span>
+    </button>
   );
 }
 

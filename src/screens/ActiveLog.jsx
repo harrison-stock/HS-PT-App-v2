@@ -8,6 +8,7 @@ import { IconPause, IconPlay, IconCheck, IconX2, IconChevronLeft, IconChevronRig
 import { ExerciseComments } from './ExerciseComments'
 import { notify, trainerOf } from '../lib/notifications'
 import { saveActiveWorkout, loadActiveWorkout, clearActiveWorkout } from '../lib/activeWorkout'
+import { BANDS, bandOf } from '../components/bands'
 
 // Active Workout — Everfit-style swipeable cards.
 // One full-page card per exercise; horizontal snap-scroll between them.
@@ -60,7 +61,7 @@ export function ActiveLog({ go, dayId, userId, resume }) {
     setLoadError(false);
     supabase
       .from('programme_days')
-      .select(`id, intro, workout_sections ( id, kind, title, sort_order, section_exercises ( id, name, img_url, timed, tempo, coach_notes, superset_group, alternates, sort_order, exercise_sets ( set_index, reps, reps_text, weight_kg, rest_secs, time_secs, kind ) ) )`)
+      .select(`id, intro, workout_sections ( id, kind, title, sort_order, section_exercises ( id, name, img_url, timed, banded, tempo, coach_notes, superset_group, alternates, sort_order, exercise_sets ( set_index, reps, reps_text, weight_kg, band, rest_secs, time_secs, kind ) ) )`)
       .eq('id', dayId)
       .single()
       .then(({ data, error }) => {
@@ -83,12 +84,14 @@ export function ActiveLog({ go, dayId, userId, resume }) {
                   : {
                       reps: st.reps_text || String(st.reps ?? 8),
                       kg: parseFloat(st.weight_kg) || null,
+                      band: st.band ?? null,
                       kind: (st.kind && st.kind !== 'WORK') ? st.kind : undefined,
                       done: false, active: false, rpe: null,
                     }));
               rows.push({
                 id: ex.id, name: ex.name, img: ex.img_url || '',
                 base: { name: ex.name, img: ex.img_url || '' },
+                banded: !!ex.banded,
                 phase, tempo: ex.tempo || '', ss: ex.superset_group ?? null,
                 rest: parseInt((ex.exercise_sets || [])[0]?.rest_secs) || 60,
                 coach: ex.coach_notes || '',
@@ -107,7 +110,7 @@ export function ActiveLog({ go, dayId, userId, resume }) {
               rows.forEach(ex => {
                 const saved = byId[ex.id];
                 if (saved) ex.sets = ex.sets.map((s, i) => saved[i]
-                  ? { ...s, done: !!saved[i].done, reps: saved[i].reps ?? s.reps, kg: saved[i].kg ?? s.kg, rpe: saved[i].rpe ?? s.rpe }
+                  ? { ...s, done: !!saved[i].done, reps: saved[i].reps ?? s.reps, kg: saved[i].kg ?? s.kg, band: saved[i].band ?? s.band, rpe: saved[i].rpe ?? s.rpe }
                   : s);
               });
               setActiveIdx(Math.min(snap.activeIdx || 0, rows.length - 1));
@@ -141,7 +144,7 @@ export function ActiveLog({ go, dayId, userId, resume }) {
       dayId, startedAt: sessionStartRef.current,
       sessionTime: cur.sessionTime, activeIdx: cur.activeIdx,
       label: dayIntro || '',
-      exercises: cur.exercises.map(ex => ({ id: ex.id, sets: (ex.sets || []).map(s => ({ done: !!s.done, reps: s.reps, kg: s.kg, rpe: s.rpe })) })),
+      exercises: cur.exercises.map(ex => ({ id: ex.id, sets: (ex.sets || []).map(s => ({ done: !!s.done, reps: s.reps, kg: s.kg, band: s.band, rpe: s.rpe })) })),
     });
   }, [dayId, userId, complete, dayIntro]);
 
@@ -170,7 +173,8 @@ export function ActiveLog({ go, dayId, userId, resume }) {
             if (s.done) logRows.push({
               session_id: ws.id, exercise_id: ex.id, set_index: i,
               actual_reps: s.time ? null : (typeof s.reps === 'number' ? s.reps : (parseInt(s.reps) || null)),
-              actual_weight_kg: s.time ? null : (s.kg || null),
+              actual_weight_kg: (s.time || s.band) ? null : (s.kg || null),
+              actual_band: s.band || null,
               actual_time_secs: s.time ? parseTimeToSeconds(s.reps) : null,
               intensity: s.rpe ? Math.round(s.rpe * 2.5) : null,
             });
@@ -715,7 +719,7 @@ function ExerciseCard({ ex, idx, total, onComplete, onUpdate, onTitle, onAddSet,
           {/* header row */}
           <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 1fr 56px 36px', gap: 8, padding: '8px 14px', fontSize: 9, color: 'var(--text-3)' }} className="mono">
             <span style={{ letterSpacing: '0.1em' }}>SET</span>
-            <span style={{ letterSpacing: '0.1em' }}>{ex.sets[0]?.kg != null ? 'KG' : 'TYPE'}</span>
+            <span style={{ letterSpacing: '0.1em' }}>{ex.banded ? 'BAND' : ex.sets[0]?.kg != null ? 'KG' : 'TYPE'}</span>
             <span style={{ letterSpacing: '0.1em' }}>{ex.sets[0]?.time ? 'TIME' : 'REPS'}</span>
             <span style={{ letterSpacing: '0.04em' }}>DIFFICULTY</span>
             <span />
@@ -726,11 +730,12 @@ function ExerciseCard({ ex, idx, total, onComplete, onUpdate, onTitle, onAddSet,
               if (!s) return null;
               if (!s.kind) wn += 1;
               return (
-                <LogSetRow key={i} idx={i} setNum={wn} set={s} color={phaseColor}
+                <LogSetRow key={i} idx={i} setNum={wn} set={s} color={phaseColor} banded={ex.banded}
                 onComplete={() => onComplete(i)}
                 onRpe={(rpe) => onUpdate(i, { rpe })}
                 onReps={(reps) => onUpdate(i, { reps })}
                 onKg={(kg) => onUpdate(i, { kg })}
+                onBand={(band) => onUpdate(i, { band })}
                 onKind={(kind) => onUpdate(i, kindPatch(s, kind))} />);
             });
           })()}
@@ -1422,7 +1427,7 @@ function SetTypeBadge({ set, setNum, onKind }) {
 }
 
 // ── SET ROW ──────────────────────────────────────────────────────
-function LogSetRow({ idx, setNum, set, color = 'var(--lime)', onComplete, onReps, onKg, onRpe, onKind }) {
+function LogSetRow({ idx, setNum, set, color = 'var(--lime)', banded, onComplete, onReps, onKg, onBand, onRpe, onKind }) {
   if (!set) return null;
   const type = SET_TYPE[set.kind];
   return (
@@ -1435,7 +1440,9 @@ function LogSetRow({ idx, setNum, set, color = 'var(--lime)', onComplete, onReps
     }}>
       {set.active && <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 2, background: 'var(--accent)', boxShadow: '0 0 calc(8px * var(--glow)) var(--accent-glow)' }} />}
       <SetTypeBadge set={set} setNum={setNum} onKind={onKind} />
-      {set.kg != null ?
+      {banded ?
+      <BandCell band={set.band} done={set.done} onChange={onBand} /> :
+      set.kg != null ?
       <NumCell value={set.kg} suffix="kg" done={set.done} onChange={onKg} /> :
       <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.08em', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             {set.time ? <><IconTimer size={11} />TIMED</> : 'BW'}
@@ -1459,6 +1466,44 @@ function LogSetRow({ idx, setNum, set, color = 'var(--lime)', onComplete, onReps
       </button>
     </div>);
 
+}
+
+// Band selector for the client log — tap to pick a band colour.
+function BandCell({ band, done, onChange }) {
+  const [open, setOpen] = React.useState(false);
+  const b = bandOf(band);
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '4px 6px', borderRadius: 7, border: '1px solid var(--line-strong)', background: 'var(--bg-2)',
+        opacity: done ? 0.7 : 1, maxWidth: '100%', boxSizing: 'border-box',
+      }}>
+        {b
+          ? <><span style={{ width: 14, height: 14, borderRadius: 4, background: b.color, border: '1px solid rgba(255,255,255,0.35)', flexShrink: 0 }}/><span className="mono" style={{ fontSize: 10, fontWeight: 700, color: 'var(--text)' }}>{b.short}</span></>
+          : <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 700 }}>PICK BAND</span>}
+        <span style={{ color: 'var(--text-3)', fontSize: 9 }}>▾</span>
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }}/>
+          <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 31, minWidth: 150,
+            background: 'var(--bg-3)', border: '1px solid var(--line-strong)', borderRadius: 10, padding: 6,
+            boxShadow: '0 8px 28px rgba(0,0,0,0.5)', display: 'grid', gap: 2 }}>
+            {BANDS.map(opt => (
+              <button key={opt.key} onClick={() => { onChange(opt.key); setOpen(false); }} style={{
+                all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', borderRadius: 7,
+                background: band === opt.key ? 'var(--bg-2)' : 'transparent',
+              }}>
+                <span style={{ width: 16, height: 16, borderRadius: 4, background: opt.color, border: '1px solid rgba(255,255,255,0.35)', flexShrink: 0 }}/>
+                <span className="mono" style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 function RepsCell({ set, onChange }) {

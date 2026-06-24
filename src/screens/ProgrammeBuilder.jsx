@@ -4,6 +4,7 @@ import { HexBackButton, HexShape } from '../components/hex'
 import { IconChevronRight, IconX2 } from '../components/icons'
 import { loadExercises, videoThumb } from '../lib/exercises'
 import { MasterPlanner } from './MasterPlanner'
+import { BandPicker, BandChip, bandOf } from '../components/bands'
 
 const IMG_FALLBACK = 'https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=200&q=70';
 const TAGS = ['STRENGTH','ONBOARD','REHAB','ENDURANCE','HYBRID','SPORT'];
@@ -101,7 +102,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
         const ex = s.items[eOrd];
         const { data: exRow } = await supabase
           .from('section_exercises')
-          .insert({ section_id: sec.id, name: ex.name, img_url: ex.img, timed: ex.timed, tempo: ex.tempo || '', coach_notes: ex.coachNotes || '', superset_group: ex.ssGroup ?? null, alternates: ex.alternates || [], sort_order: eOrd })
+          .insert({ section_id: sec.id, name: ex.name, img_url: ex.img, timed: ex.timed, banded: ex.banded || false, tempo: ex.tempo || '', coach_notes: ex.coachNotes || '', superset_group: ex.ssGroup ?? null, alternates: ex.alternates || [], sort_order: eOrd })
           .select('id').single();
         if (!exRow) continue;
 
@@ -112,6 +113,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
             reps: parseInt(st.repsText) || 0,
             reps_text: st.repsText || '',
             weight_kg: st.weight,
+            band: st.band ?? null,
             rest_secs: st.rest, time_secs: st.time, intensity: st.intensity,
           }))
         );
@@ -173,7 +175,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
   const addEx = (sIdx, ex = {}) => {
     const id = 'x' + Date.now();
     setDay(d => ({ ...d, sections: d.sections.map((s, si) => si !== sIdx ? s : ({
-      ...s, items: [...s.items, { id, name: ex.name || 'New Exercise', img: ex.img || IMG_FALLBACK, timed: false, tempo: '', coachNotes: '', setsList: [mkSet('WORK', { reps: 10, weight: 0, rest: 60, intensity: 6 })] }],
+      ...s, items: [...s.items, { id, name: ex.name || 'New Exercise', img: ex.img || IMG_FALLBACK, timed: false, banded: !!ex.banded, tempo: '', coachNotes: '', setsList: [mkSet('WORK', { reps: 10, weight: 0, rest: 60, intensity: 6, band: ex.banded ? 'medium' : null })] }],
     })) }));
     setDirty(true);
     setExpandedExId(id);
@@ -777,6 +779,15 @@ function ExerciseEditor({ e, color, expanded, expandedSetId, ssLabel, canSuperse
             <Toggle on={e.timed} onChange={v => onUpdateEx({ timed: v })}/>
           </div>
 
+          {/* Banded mode — track a band colour instead of weight */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px dashed var(--line)' }}>
+            <div>
+              <div className="mono" style={{ fontSize: 10, letterSpacing: '0.1em', fontWeight: 600 }}>BANDED</div>
+              <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{e.banded ? 'Sets track band colour' : 'Sets track weight'}</div>
+            </div>
+            <Toggle on={e.banded} onChange={v => onUpdateEx({ banded: v })}/>
+          </div>
+
           {/* Tempo */}
           <div style={{ padding: '10px 4px', borderBottom: '1px dashed var(--line)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
@@ -807,7 +818,7 @@ function ExerciseEditor({ e, color, expanded, expandedSetId, ssLabel, canSuperse
           <div style={{ marginTop: 8 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr 1fr 30px 18px', gap: 6, padding: '0 2px 6px' }} className="mono">
               <span style={thSt}>SET</span>
-              <span style={thSt}>{e.timed ? 'TIME' : 'KG'}</span>
+              <span style={thSt}>{e.timed ? 'TIME' : e.banded ? 'BAND' : 'KG'}</span>
               <span style={thSt}>{e.timed ? 'KG' : 'REPS'}</span>
               <span style={thSt}>REST</span>
               <span style={thSt}>INT</span>
@@ -815,7 +826,7 @@ function ExerciseEditor({ e, color, expanded, expandedSetId, ssLabel, canSuperse
             </div>
             <div style={{ display: 'grid', gap: 4 }}>
               {e.setsList.map((st, i) => (
-                <SetRow key={st.id} st={st} setIdx={i} total={e.setsList.length} timed={e.timed} color={color}
+                <SetRow key={st.id} st={st} setIdx={i} total={e.setsList.length} timed={e.timed} banded={e.banded} color={color}
                   expanded={expandedSetId === st.id}
                   onExpand={() => onExpandSet(st.id)}
                   onUpdate={patch => onUpdateSet(i, patch)}
@@ -872,16 +883,21 @@ function ExerciseEditor({ e, color, expanded, expandedSetId, ssLabel, canSuperse
 // ── SET ROW ───────────────────────────────────────────────────────
 const SK_META = { WARMUP: { l:'W', c:'var(--c-amber)' }, DROPSET: { l:'D', c:'var(--c-blue)' }, FAILURE: { l:'F', c:'var(--c-coral)' }, PARTIAL: { l:'P', c:'var(--c-pink)' } };
 
-function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate, onDelete, onDuplicate, onApplyToAll }) {
+function SetRow({ st, setIdx, total, timed, banded, color, expanded, onExpand, onUpdate, onDelete, onDuplicate, onApplyToAll }) {
   const sk     = SK_META[st.kind];
   const accent = sk ? sk.c : color;
+  const bandCol = bandOf(st.band);
   return (
     <div style={{ background: expanded ? 'var(--bg-3)' : 'var(--bg-1)', border: '1px solid '+(expanded?accent:'var(--line)'), borderRadius: 8, overflow: 'hidden' }}>
       <button onClick={onExpand} style={{ all: 'unset', cursor: 'pointer', width: '100%', display: 'grid', gridTemplateColumns: '26px 1fr 1fr 1fr 28px 16px', gap: 4, alignItems: 'center', padding: '6px 4px', boxSizing: 'border-box' }}>
         <span style={{ width: 20, height: 20, borderRadius: 4, background: sk?`color-mix(in srgb, ${sk.c} 15%, transparent)`:'rgba(255,255,255,0.04)', color: sk?sk.c:'var(--text-2)', border: sk?`1px solid color-mix(in srgb, ${sk.c} 50%, transparent)`:'1px solid var(--line)', fontFamily: 'JetBrains Mono', fontWeight: 700, fontSize: 9, display: 'grid', placeItems: 'center' }}>
           {sk ? sk.l : String(setIdx+1).padStart(2,'0')}
         </span>
-        {timed ? <CellVal value={fmtSecs(st.time)}/> : <CellVal value={st.weight ? `${st.weight}` : 'BW'} unit={st.weight ? 'kg' : null}/>}
+        {timed ? <CellVal value={fmtSecs(st.time)}/>
+          : banded ? (bandCol
+              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: bandCol.color, border: '1px solid rgba(255,255,255,0.35)', flexShrink: 0 }}/><span className="mono" style={{ fontSize: 9, color: 'var(--text-2)', fontWeight: 700 }}>{bandCol.short}</span></span>
+              : <CellVal value="—"/>)
+          : <CellVal value={st.weight ? `${st.weight}` : 'BW'} unit={st.weight ? 'kg' : null}/>}
         {timed ? <CellVal value={st.weight ? `${st.weight}` : '—'} unit={st.weight ? 'kg' : null}/> : <CellVal value={`× ${st.repsText||0}`}/>}
         <CellVal value={fmtSecs(st.rest)}/>
         <span style={{ width: 22, height: 20, borderRadius: 4, display: 'grid', placeItems: 'center', background: `color-mix(in srgb, ${intensityColor(st.intensity)} 18%, transparent)`, color: intensityColor(st.intensity), fontFamily: 'JetBrains Mono', fontWeight: 700, fontSize: 10, border: `1px solid color-mix(in srgb, ${intensityColor(st.intensity)} 40%, transparent)` }}>{st.intensity}</span>
@@ -897,13 +913,23 @@ function SetRow({ st, setIdx, total, timed, color, expanded, onExpand, onUpdate,
             </div>
             <Toggle on={st.kind === 'WARMUP'} onChange={v => onUpdate({ kind: v ? 'WARMUP' : 'WORK' })}/>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {timed
-              ? <TimeStepper label="TIME" value={st.time||60} onChange={v => onUpdate({ time: v })} accent={accent}/>
-              : <RepsTextInput value={st.repsText||''} onChange={v => onUpdate({ repsText: v })} accent={accent}/>
-            }
-            <Stepper label="WEIGHT" unit="kg" value={st.weight||0} min={0} max={400} step={2.5} onChange={v => onUpdate({ weight: v })} accent={accent}/>
-          </div>
+          {banded ? (
+            <>
+              <RepsTextInput value={st.repsText||''} onChange={v => onUpdate({ repsText: v })} accent={accent}/>
+              <div style={{ marginTop: 8 }}>
+                <div className="mono" style={{ fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-2)', fontWeight: 600, marginBottom: 6 }}>BAND</div>
+                <BandPicker value={st.band} onChange={v => onUpdate({ band: v })}/>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {timed
+                ? <TimeStepper label="TIME" value={st.time||60} onChange={v => onUpdate({ time: v })} accent={accent}/>
+                : <RepsTextInput value={st.repsText||''} onChange={v => onUpdate({ repsText: v })} accent={accent}/>
+              }
+              <Stepper label="WEIGHT" unit="kg" value={st.weight||0} min={0} max={400} step={2.5} onChange={v => onUpdate({ weight: v })} accent={accent}/>
+            </div>
+          )}
           <div style={{ marginTop: 6 }}>
             <TimeStepper label="REST" value={st.rest||0} onChange={v => onUpdate({ rest: v })} accent={accent} stepSec={15}/>
           </div>
@@ -1160,6 +1186,7 @@ export function ExercisePicker({ onClose, onPick }) {
       name: e.name,
       img: e.thumbnail_url || videoThumb(e.video_url) || (e.photos && e.photos[0]) || IMG_FALLBACK,
       cat: (e.muscle_group || 'OTHER').toUpperCase(),
+      banded: !!e.banded,
     }))));
   }, []);
 
@@ -1204,7 +1231,7 @@ export function ExercisePicker({ onClose, onPick }) {
               <div className="label" style={{ marginBottom: 8 }}>// {cat}</div>
               <div style={{ display: 'grid', gap: 6 }}>
                 {filtered.filter(e => e.cat === cat).map(ex => (
-                  <button key={ex.name} onClick={() => onPick({ name: ex.name, img: ex.img })} style={{
+                  <button key={ex.name} onClick={() => onPick({ name: ex.name, img: ex.img, banded: ex.banded })} style={{
                     all: 'unset', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px', background: 'var(--bg-2)',
@@ -1232,18 +1259,18 @@ function dbToSections(sections) {
   return sections.map(s => ({
     kind: s.kind, title: s.title,
     items: [...(s.section_exercises||[])].sort((a,b) => a.sort_order-b.sort_order).map(ex => ({
-      id: ex.id, name: ex.name, img: ex.img_url||IMG_FALLBACK, timed: ex.timed, tempo: ex.tempo||'', coachNotes: ex.coach_notes||'', ssGroup: ex.superset_group ?? null, alternates: ex.alternates || [],
+      id: ex.id, name: ex.name, img: ex.img_url||IMG_FALLBACK, timed: ex.timed, banded: !!ex.banded, tempo: ex.tempo||'', coachNotes: ex.coach_notes||'', ssGroup: ex.superset_group ?? null, alternates: ex.alternates || [],
       setsList: [...(ex.exercise_sets||[])].sort((a,b) => a.set_index-b.set_index).map(st => ({
         id: 's'+st.id.slice(-8), kind: st.kind,
         repsText: st.reps_text || String(st.reps ?? 8),
-        weight: Number(st.weight_kg)||0, rest: st.rest_secs??60,
+        weight: Number(st.weight_kg)||0, band: st.band ?? null, rest: st.rest_secs??60,
         time: st.time_secs??60, intensity: st.intensity??6,
       })),
     })),
   }));
 }
 
-function mkSet(kind, p) { return { id: randId(), kind, repsText: p.repsText ?? String(p.reps ?? 8), weight:p.weight??0, rest:p.rest??60, time:p.time??60, intensity:p.intensity??6 }; }
+function mkSet(kind, p) { return { id: randId(), kind, repsText: p.repsText ?? String(p.reps ?? 8), weight:p.weight??0, band:p.band ?? null, rest:p.rest??60, time:p.time??60, intensity:p.intensity??6 }; }
 function randId() { return 's'+Math.random().toString(36).slice(2); }
 
 function summarize(e) {
@@ -1252,6 +1279,7 @@ function summarize(e) {
   const w = uniqueRange(work.map(s => s.weight));
   if (e.timed) { const t = uniqueRange(work.map(s => s.time), fmtSecs); return `${t}${w!=='0'?' · '+w+'kg':''}`; }
   const repsVal = work[0]?.repsText || '—';
+  if (e.banded) { const b = bandOf(work[0]?.band); return `${b ? b.short : 'BAND'} × ${repsVal}`; }
   return `${w==='0'?'BW':w+'kg'} × ${repsVal}`;
 }
 

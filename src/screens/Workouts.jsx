@@ -2,6 +2,7 @@ import React from 'react'
 import { supabase } from '../lib/supabase'
 import { HEX_RATIO, Hex, HexBackButton } from '../components/hex'
 import { IconBand, IconCalendar, IconCheck, IconChevronLeft, IconChevronRight, IconClock, IconDumbbell, IconFlame, IconLeaf, IconTarget } from '../components/icons'
+import { bandOf } from '../components/bands'
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -25,9 +26,10 @@ function deriveTarget(sets) {
   return `${sorted.length} × ${reps || '—'}`;
 }
 
-function deriveLoad(sets) {
+function deriveLoad(sets, banded) {
   if (!sets || sets.length === 0) return '—';
   const sorted = [...sets].sort((a, b) => a.set_index - b.set_index);
+  if (banded) { const b = bandOf(sorted[0]?.band); return b ? `${b.short} BAND` : 'BAND'; }
   const kg = sorted[0]?.weight_kg;
   if (!kg || parseFloat(kg) === 0) return '—';
   return `${parseFloat(kg)}kg`;
@@ -65,7 +67,7 @@ function shapeWorkout(row) {
             tempo: ex.tempo || '',
             ss: ex.superset_group ?? null,
             target: deriveTarget(ex.exercise_sets),
-            load: deriveLoad(ex.exercise_sets),
+            load: deriveLoad(ex.exercise_sets, ex.banded),
           })),
       };
     });
@@ -130,8 +132,8 @@ export function Workouts({ go, openPreview, userId }) {
           workout_sections (
             id, kind, title, sort_order,
             section_exercises (
-              id, name, img_url, tempo, timed, superset_group, sort_order,
-              exercise_sets ( set_index, reps, weight_kg, rest_secs, time_secs )
+              id, name, img_url, tempo, timed, banded, superset_group, sort_order,
+              exercise_sets ( set_index, reps, weight_kg, band, rest_secs, time_secs )
             )
           )
         )

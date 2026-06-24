@@ -10,7 +10,7 @@ const emptyDraft = () => ({
   id: null, name: '', modality: 'Strength', muscle_group: 'Shoulders',
   movement_pattern: 'Upper Body Vertical Push', category: 'Strength',
   tracking_fields: ['Weight', 'Reps'], muscles_worked: [], instructions: '', link_url: '',
-  video_url: '', thumbnail_url: '', photos: [],
+  video_url: '', thumbnail_url: '', photos: [], banded: false,
 });
 
 export function ExerciseBuilder({ trainerId, exercise, onClose, onSaved }) {
@@ -122,6 +122,31 @@ export function ExerciseBuilder({ trainerId, exercise, onClose, onSaved }) {
               <select value={d.category} onChange={e => set({ category: e.target.value })} style={{ ...fieldSt, appearance: 'auto' }}>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+
+              {/* Banded movement toggle — collects a band colour instead of weight */}
+              <button onClick={() => set({ banded: !d.banded })} style={{
+                all: 'unset', cursor: 'pointer', marginTop: 10,
+                display: 'flex', alignItems: 'center', gap: 12, padding: '12px',
+                borderRadius: 10, background: 'var(--bg-2)',
+                border: `1px solid ${d.banded ? 'var(--accent)' : 'var(--line)'}`,
+              }}>
+                <span style={{
+                  width: 40, height: 24, borderRadius: 999, flexShrink: 0, position: 'relative',
+                  background: d.banded ? 'var(--accent)' : 'var(--bg-3)',
+                  border: `1px solid ${d.banded ? 'var(--accent)' : 'var(--line-strong)'}`, transition: 'background .15s',
+                }}>
+                  <span style={{
+                    position: 'absolute', top: 2, left: d.banded ? 18 : 2, width: 18, height: 18, borderRadius: '50%',
+                    background: d.banded ? 'var(--on-accent)' : 'var(--text-3)', transition: 'left .15s',
+                  }}/>
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: d.banded ? 'var(--accent)' : 'var(--text)' }}>Banded movement</div>
+                  <div className="mono" style={{ fontSize: 9.5, color: 'var(--text-3)', letterSpacing: '0.04em', marginTop: 2, lineHeight: 1.4 }}>
+                    Collect a band colour (X-Light → X-Heavy) instead of a weight
+                  </div>
+                </div>
+              </button>
 
               <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'var(--bg-2)', border: '1px solid var(--line)' }}>
                 <div className="label" style={{ marginBottom: 8 }}>TRACKING FIELDS</div>
@@ -259,6 +284,7 @@ function hydrate(e) {
     muscles_worked: e.muscles_worked ? [...e.muscles_worked] : [],
     instructions: e.instructions || '', link_url: e.link_url || '',
     video_url: e.video_url || '', thumbnail_url: e.thumbnail_url || '', photos: e.photos ? [...e.photos] : [],
+    banded: !!e.banded,
   };
 }
 
