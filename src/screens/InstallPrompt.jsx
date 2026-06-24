@@ -37,10 +37,12 @@ export function InstallPrompt({ onClose }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 410, background: 'rgba(6,10,12,0.66)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: 24, animation: 'fadeIn .15s ease' }}>
       <div onClick={e => e.stopPropagation()} className="card" style={{ width: '100%', maxWidth: 340, padding: 22, background: 'var(--bg-2)', textAlign: 'center' }}>
-        <img src="/icon-192.png" alt="" width={62} height={62} style={{ borderRadius: 15, margin: '0 auto 12px', display: 'block', boxShadow: '0 6px 20px rgba(0,0,0,0.4)' }}/>
-        <div className="h-bold" style={{ fontSize: 19, marginBottom: 6 }}>INSTALL THE APP</div>
-        <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 18 }}>
-          Add it to your home screen for full-screen, one-tap access — just like a native app.
+        <div style={{ padding: 14, margin: '4px auto 14px', width: 'fit-content' }}>
+          <img src="/logo-mark.png" alt="HS PT" width={84} style={{ display: 'block', height: 'auto', filter: 'drop-shadow(0 6px 18px rgba(0,0,0,0.35))' }}/>
+        </div>
+        <div className="h-bold" style={{ fontSize: 19, marginBottom: 8 }}>INSTALL THE HS PT APP</div>
+        <div className="mono" style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.55, marginBottom: 18 }}>
+          You can add the HS PT to your home screen for quick, one-tap access to your programme, recipes and resources.
         </div>
 
         {installed ? (
