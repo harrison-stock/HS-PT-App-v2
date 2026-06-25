@@ -56,6 +56,7 @@ export async function saveExercise(trainerId, draft) {
     thumbnail_url: draft.thumbnail_url || '',
     photos: draft.photos || [],
     banded: !!draft.banded,
+    unilateral: !!draft.unilateral,
     updated_at: new Date().toISOString(),
   };
   if (draft.id) {

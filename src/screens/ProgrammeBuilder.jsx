@@ -102,7 +102,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
         const ex = s.items[eOrd];
         const { data: exRow } = await supabase
           .from('section_exercises')
-          .insert({ section_id: sec.id, name: ex.name, img_url: ex.img, timed: ex.timed, banded: ex.banded || false, tempo: ex.tempo || '', coach_notes: ex.coachNotes || '', superset_group: ex.ssGroup ?? null, alternates: ex.alternates || [], sort_order: eOrd })
+          .insert({ section_id: sec.id, name: ex.name, img_url: ex.img, timed: ex.timed, banded: ex.banded || false, unilateral: ex.unilateral || false, tempo: ex.tempo || '', coach_notes: ex.coachNotes || '', superset_group: ex.ssGroup ?? null, alternates: ex.alternates || [], sort_order: eOrd })
           .select('id').single();
         if (!exRow) continue;
 
@@ -175,7 +175,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
   const addEx = (sIdx, ex = {}) => {
     const id = 'x' + Date.now();
     setDay(d => ({ ...d, sections: d.sections.map((s, si) => si !== sIdx ? s : ({
-      ...s, items: [...s.items, { id, name: ex.name || 'New Exercise', img: ex.img || IMG_FALLBACK, timed: false, banded: !!ex.banded, tempo: '', coachNotes: '', setsList: [mkSet('WORK', { reps: 10, weight: 0, rest: 60, intensity: 6, band: ex.banded ? 'medium' : null })] }],
+      ...s, items: [...s.items, { id, name: ex.name || 'New Exercise', img: ex.img || IMG_FALLBACK, timed: false, banded: !!ex.banded, unilateral: !!ex.unilateral, tempo: '', coachNotes: '', setsList: [mkSet('WORK', { reps: 10, weight: 0, rest: 60, intensity: 6, band: ex.banded ? 'medium' : null })] }],
     })) }));
     setDirty(true);
     setExpandedExId(id);
@@ -788,6 +788,15 @@ function ExerciseEditor({ e, color, expanded, expandedSetId, ssLabel, canSuperse
             <Toggle on={e.banded} onChange={v => onUpdateEx({ banded: v })}/>
           </div>
 
+          {/* Unilateral — done one side at a time */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px dashed var(--line)' }}>
+            <div>
+              <div className="mono" style={{ fontSize: 10, letterSpacing: '0.1em', fontWeight: 600 }}>EACH SIDE</div>
+              <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{e.unilateral ? 'Reps shown per side' : 'Both sides together'}</div>
+            </div>
+            <Toggle on={e.unilateral} onChange={v => onUpdateEx({ unilateral: v })}/>
+          </div>
+
           {/* Tempo */}
           <div style={{ padding: '10px 4px', borderBottom: '1px dashed var(--line)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
@@ -1187,6 +1196,7 @@ export function ExercisePicker({ onClose, onPick }) {
       img: e.thumbnail_url || videoThumb(e.video_url) || (e.photos && e.photos[0]) || IMG_FALLBACK,
       cat: (e.muscle_group || 'OTHER').toUpperCase(),
       banded: !!e.banded,
+      unilateral: !!e.unilateral,
     }))));
   }, []);
 
@@ -1231,7 +1241,7 @@ export function ExercisePicker({ onClose, onPick }) {
               <div className="label" style={{ marginBottom: 8 }}>// {cat}</div>
               <div style={{ display: 'grid', gap: 6 }}>
                 {filtered.filter(e => e.cat === cat).map(ex => (
-                  <button key={ex.name} onClick={() => onPick({ name: ex.name, img: ex.img, banded: ex.banded })} style={{
+                  <button key={ex.name} onClick={() => onPick({ name: ex.name, img: ex.img, banded: ex.banded, unilateral: ex.unilateral })} style={{
                     all: 'unset', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px', background: 'var(--bg-2)',
@@ -1259,7 +1269,7 @@ function dbToSections(sections) {
   return sections.map(s => ({
     kind: s.kind, title: s.title,
     items: [...(s.section_exercises||[])].sort((a,b) => a.sort_order-b.sort_order).map(ex => ({
-      id: ex.id, name: ex.name, img: ex.img_url||IMG_FALLBACK, timed: ex.timed, banded: !!ex.banded, tempo: ex.tempo||'', coachNotes: ex.coach_notes||'', ssGroup: ex.superset_group ?? null, alternates: ex.alternates || [],
+      id: ex.id, name: ex.name, img: ex.img_url||IMG_FALLBACK, timed: ex.timed, banded: !!ex.banded, unilateral: !!ex.unilateral, tempo: ex.tempo||'', coachNotes: ex.coach_notes||'', ssGroup: ex.superset_group ?? null, alternates: ex.alternates || [],
       setsList: [...(ex.exercise_sets||[])].sort((a,b) => a.set_index-b.set_index).map(st => ({
         id: 's'+st.id.slice(-8), kind: st.kind,
         repsText: st.reps_text || String(st.reps ?? 8),
@@ -1277,10 +1287,11 @@ function summarize(e) {
   const work = e.setsList.filter(s => !s.kind || s.kind === 'WORK' || s.kind === 'DROPSET' || s.kind === 'FAILURE' || s.kind === 'PARTIAL');
   if (work.length===0) return '—';
   const w = uniqueRange(work.map(s => s.weight));
-  if (e.timed) { const t = uniqueRange(work.map(s => s.time), fmtSecs); return `${t}${w!=='0'?' · '+w+'kg':''}`; }
+  const side = e.unilateral ? '/side' : '';
+  if (e.timed) { const t = uniqueRange(work.map(s => s.time), fmtSecs); return `${t}${side}${w!=='0'?' · '+w+'kg':''}`; }
   const repsVal = work[0]?.repsText || '—';
-  if (e.banded) { const b = bandOf(work[0]?.band); return `${b ? b.short : 'BAND'} × ${repsVal}`; }
-  return `${w==='0'?'BW':w+'kg'} × ${repsVal}`;
+  if (e.banded) { const b = bandOf(work[0]?.band); return `${b ? b.short : 'BAND'} × ${repsVal}${side}`; }
+  return `${w==='0'?'BW':w+'kg'} × ${repsVal}${side}`;
 }
 
 function uniqueRange(arr, fmt=String) {

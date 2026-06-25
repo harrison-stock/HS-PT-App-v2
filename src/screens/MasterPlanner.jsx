@@ -23,7 +23,7 @@ const parseClock = (v) => {
   return parseInt(v) || 0;
 };
 
-const SELECT = 'id, phase_id, week_index, day_of_week, intro, workout_sections(id, title, kind, sort_order, section_exercises(id, name, img_url, timed, banded, alternates, superset_group, sort_order, exercise_sets(id, set_index, kind, reps_text, reps, weight_kg, band, rest_secs, time_secs)))';
+const SELECT = 'id, phase_id, week_index, day_of_week, intro, workout_sections(id, title, kind, sort_order, section_exercises(id, name, img_url, timed, banded, unilateral, alternates, superset_group, sort_order, exercise_sets(id, set_index, kind, reps_text, reps, weight_kg, band, rest_secs, time_secs)))';
 
 // Master Planner — every day of the programme pulled out at once, fully editable
 // inline. Two layouts: same day across all weeks ("Week by Week"), or all seven
@@ -220,6 +220,7 @@ function PlannerExercise({ ex, idx, onPatchSet, onAddSet, onDelSet, onDelExercis
         <div style={{ width: 22, height: 22, borderRadius: 5, flexShrink: 0, background: `center/cover url('${ex.img_url || IMG_FALLBACK}'), var(--bg-3)` }}/>
         <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ex.name}</span>
         {ex.superset_group != null && <span className="mono" style={{ fontSize: 7, fontWeight: 800, color: 'var(--accent-2)', flexShrink: 0 }}>SS</span>}
+        {ex.unilateral && <span className="mono" style={{ fontSize: 7, fontWeight: 800, color: 'var(--c-amber)', flexShrink: 0 }}>EA</span>}
         <button onClick={() => onDelExercise(ex.id)} aria-label="Remove exercise" style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-3)', flexShrink: 0 }}><IconX2 size={11}/></button>
       </div>
 

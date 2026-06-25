@@ -19,11 +19,11 @@ function fmtDate(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
-function deriveTarget(sets) {
+function deriveTarget(sets, unilateral) {
   if (!sets || sets.length === 0) return '—';
   const sorted = [...sets].sort((a, b) => a.set_index - b.set_index);
   const reps = sorted[0]?.reps;
-  return `${sorted.length} × ${reps || '—'}`;
+  return `${sorted.length} × ${reps || '—'}${unilateral ? ' ea' : ''}`;
 }
 
 function deriveLoad(sets, banded) {
@@ -66,7 +66,7 @@ function shapeWorkout(row) {
             img: ex.img_url || null,
             tempo: ex.tempo || '',
             ss: ex.superset_group ?? null,
-            target: deriveTarget(ex.exercise_sets),
+            target: deriveTarget(ex.exercise_sets, ex.unilateral),
             load: deriveLoad(ex.exercise_sets, ex.banded),
           })),
       };
@@ -132,7 +132,7 @@ export function Workouts({ go, openPreview, userId }) {
           workout_sections (
             id, kind, title, sort_order,
             section_exercises (
-              id, name, img_url, tempo, timed, banded, superset_group, sort_order,
+              id, name, img_url, tempo, timed, banded, unilateral, superset_group, sort_order,
               exercise_sets ( set_index, reps, weight_kg, band, rest_secs, time_secs )
             )
           )

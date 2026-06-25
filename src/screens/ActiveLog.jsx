@@ -61,7 +61,7 @@ export function ActiveLog({ go, dayId, userId, resume }) {
     setLoadError(false);
     supabase
       .from('programme_days')
-      .select(`id, intro, workout_sections ( id, kind, title, sort_order, section_exercises ( id, name, img_url, timed, banded, tempo, coach_notes, superset_group, alternates, sort_order, exercise_sets ( set_index, reps, reps_text, weight_kg, band, rest_secs, time_secs, kind ) ) )`)
+      .select(`id, intro, workout_sections ( id, kind, title, sort_order, section_exercises ( id, name, img_url, timed, banded, unilateral, tempo, coach_notes, superset_group, alternates, sort_order, exercise_sets ( set_index, reps, reps_text, weight_kg, band, rest_secs, time_secs, kind ) ) )`)
       .eq('id', dayId)
       .single()
       .then(({ data, error }) => {
@@ -78,6 +78,7 @@ export function ActiveLog({ go, dayId, userId, resume }) {
                       time: true,
                       reps: formatMMSS(parseInt(st.time_secs) || 0),
                       kg: null,
+                      perSide: !!ex.unilateral,
                       kind: (st.kind && st.kind !== 'WORK') ? st.kind : undefined,
                       done: false, active: false, rpe: null,
                     }
@@ -85,13 +86,14 @@ export function ActiveLog({ go, dayId, userId, resume }) {
                       reps: st.reps_text || String(st.reps ?? 8),
                       kg: parseFloat(st.weight_kg) || null,
                       band: st.band ?? null,
+                      perSide: !!ex.unilateral,
                       kind: (st.kind && st.kind !== 'WORK') ? st.kind : undefined,
                       done: false, active: false, rpe: null,
                     }));
               rows.push({
                 id: ex.id, name: ex.name, img: ex.img_url || '',
                 base: { name: ex.name, img: ex.img_url || '' },
-                banded: !!ex.banded,
+                banded: !!ex.banded, unilateral: !!ex.unilateral,
                 phase, tempo: ex.tempo || '', ss: ex.superset_group ?? null,
                 rest: parseInt((ex.exercise_sets || [])[0]?.rest_secs) || 60,
                 coach: ex.coach_notes || '',
@@ -667,11 +669,18 @@ function ExerciseCard({ ex, idx, total, onComplete, onUpdate, onTitle, onAddSet,
 
         {/* Title + actions */}
         <div style={{ marginTop: 4, marginBottom: 18 }}>
-          {ex.ss != null && (
-            <div className="mono" style={{ display: 'inline-block', fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)', borderRadius: 6, padding: '3px 8px', marginBottom: 8 }}>
-              ⛓ SUPERSET
-            </div>
-          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {ex.ss != null && (
+              <span className="mono" style={{ display: 'inline-block', fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--accent-2)', background: 'color-mix(in srgb, var(--accent-2) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)', borderRadius: 6, padding: '3px 8px' }}>
+                ⛓ SUPERSET
+              </span>
+            )}
+            {ex.unilateral && (
+              <span className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--c-amber)', background: 'color-mix(in srgb, var(--c-amber) 16%, transparent)', border: '1px solid color-mix(in srgb, var(--c-amber) 40%, transparent)', borderRadius: 6, padding: '3px 8px' }}>
+                <IconSwap size={11}/> EACH SIDE
+              </span>
+            )}
+          </div>
           <div className="h-bold" style={{ fontSize: 23, fontWeight: 900, letterSpacing: '0.01em', lineHeight: 1.05, marginBottom: 14 }}>
             {ex.name.toUpperCase()}
           </div>
@@ -720,7 +729,7 @@ function ExerciseCard({ ex, idx, total, onComplete, onUpdate, onTitle, onAddSet,
           <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 1fr 56px 36px', gap: 8, padding: '8px 14px', fontSize: 9, color: 'var(--text-3)' }} className="mono">
             <span style={{ letterSpacing: '0.1em' }}>SET</span>
             <span style={{ letterSpacing: '0.1em' }}>{ex.banded ? 'BAND' : ex.sets[0]?.kg != null ? 'KG' : 'TYPE'}</span>
-            <span style={{ letterSpacing: '0.1em' }}>{ex.sets[0]?.time ? 'TIME' : 'REPS'}</span>
+            <span style={{ letterSpacing: '0.1em' }}>{ex.sets[0]?.time ? 'TIME' : 'REPS'}{ex.unilateral ? '/SIDE' : ''}</span>
             <span style={{ letterSpacing: '0.04em' }}>DIFFICULTY</span>
             <span />
           </div>

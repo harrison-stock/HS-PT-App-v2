@@ -10,7 +10,7 @@ const emptyDraft = () => ({
   id: null, name: '', modality: 'Strength', muscle_group: 'Shoulders',
   movement_pattern: 'Upper Body Vertical Push', category: 'Strength',
   tracking_fields: ['Weight', 'Reps'], muscles_worked: [], instructions: '', link_url: '',
-  video_url: '', thumbnail_url: '', photos: [], banded: false,
+  video_url: '', thumbnail_url: '', photos: [], banded: false, unilateral: false,
 });
 
 export function ExerciseBuilder({ trainerId, exercise, onClose, onSaved }) {
@@ -144,6 +144,31 @@ export function ExerciseBuilder({ trainerId, exercise, onClose, onSaved }) {
                   <div style={{ fontSize: 13, fontWeight: 600, color: d.banded ? 'var(--accent)' : 'var(--text)' }}>Banded movement</div>
                   <div className="mono" style={{ fontSize: 9.5, color: 'var(--text-3)', letterSpacing: '0.04em', marginTop: 2, lineHeight: 1.4 }}>
                     Collect a band colour (X-Light → X-Heavy) instead of a weight
+                  </div>
+                </div>
+              </button>
+
+              {/* Unilateral toggle — done one side at a time */}
+              <button onClick={() => set({ unilateral: !d.unilateral })} style={{
+                all: 'unset', cursor: 'pointer', marginTop: 10,
+                display: 'flex', alignItems: 'center', gap: 12, padding: '12px',
+                borderRadius: 10, background: 'var(--bg-2)',
+                border: `1px solid ${d.unilateral ? 'var(--accent)' : 'var(--line)'}`,
+              }}>
+                <span style={{
+                  width: 40, height: 24, borderRadius: 999, flexShrink: 0, position: 'relative',
+                  background: d.unilateral ? 'var(--accent)' : 'var(--bg-3)',
+                  border: `1px solid ${d.unilateral ? 'var(--accent)' : 'var(--line-strong)'}`, transition: 'background .15s',
+                }}>
+                  <span style={{
+                    position: 'absolute', top: 2, left: d.unilateral ? 18 : 2, width: 18, height: 18, borderRadius: '50%',
+                    background: d.unilateral ? 'var(--on-accent)' : 'var(--text-3)', transition: 'left .15s',
+                  }}/>
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: d.unilateral ? 'var(--accent)' : 'var(--text)' }}>One side at a time</div>
+                  <div className="mono" style={{ fontSize: 9.5, color: 'var(--text-3)', letterSpacing: '0.04em', marginTop: 2, lineHeight: 1.4 }}>
+                    Unilateral — reps are shown per side with an "EACH SIDE" badge
                   </div>
                 </div>
               </button>
@@ -284,7 +309,7 @@ function hydrate(e) {
     muscles_worked: e.muscles_worked ? [...e.muscles_worked] : [],
     instructions: e.instructions || '', link_url: e.link_url || '',
     video_url: e.video_url || '', thumbnail_url: e.thumbnail_url || '', photos: e.photos ? [...e.photos] : [],
-    banded: !!e.banded,
+    banded: !!e.banded, unilateral: !!e.unilateral,
   };
 }
 
