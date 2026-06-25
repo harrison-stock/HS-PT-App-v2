@@ -5,6 +5,7 @@ import { IconChevronRight, IconX2 } from '../components/icons'
 import { loadExercises, videoThumb } from '../lib/exercises'
 import { MasterPlanner } from './MasterPlanner'
 import { BandPicker, BandChip, bandOf } from '../components/bands'
+import { exerciseMatches } from '../lib/exerciseSearch'
 
 const IMG_FALLBACK = 'https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=200&q=70';
 const TAGS = ['STRENGTH','ONBOARD','REHAB','ENDURANCE','HYBRID','SPORT'];
@@ -1204,7 +1205,7 @@ export function ExercisePicker({ onClose, onPick }) {
   // loading or if the library is empty.
   const base = (lib && lib.length) ? lib : EXERCISE_LIBRARY;
   const filtered = query.trim()
-    ? base.filter(e => e.name.toLowerCase().includes(query.toLowerCase()))
+    ? base.filter(e => exerciseMatches(e.name, query, e.cat || ''))
     : base;
   const cats = [...new Set(filtered.map(e => e.cat))];
 
@@ -1226,7 +1227,7 @@ export function ExercisePicker({ onClose, onPick }) {
             autoFocus
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search exercises…"
+            placeholder="Search… (try BB, DB, BW)"
             style={{
               width: '100%', boxSizing: 'border-box',
               background: 'var(--bg-2)', border: '1px solid var(--line-strong)', borderRadius: 10,

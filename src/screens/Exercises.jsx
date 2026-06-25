@@ -2,6 +2,7 @@ import React from 'react'
 import { Hex } from '../components/hex'
 import { IconPlus, IconPlay, IconChevronRight } from '../components/icons'
 import { loadExercises, videoThumb, MODALITIES } from '../lib/exercises'
+import { exerciseMatches } from '../lib/exerciseSearch'
 import { ExerciseBuilder } from './ExerciseBuilder'
 
 const MOD_COLOR = {
@@ -33,8 +34,7 @@ export function Exercises({ trainerId }) {
   const all = list || [];
   const filtered = all.filter(e =>
     (modFilter === 'ALL' || e.modality === modFilter) &&
-    (e.name.toLowerCase().includes(query.toLowerCase()) ||
-     (e.muscle_group || '').toLowerCase().includes(query.toLowerCase())));
+    exerciseMatches(e.name, query, e.muscle_group || ''));
 
   return (
     <div className="scroller coach-wrap">
@@ -51,7 +51,7 @@ export function Exercises({ trainerId }) {
       {/* Search */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', marginBottom: 10 }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search exercises…"
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search… (try BB, DB, BW)"
           style={{ flex: 1, background: 'transparent', border: 0, outline: 'none', color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 12 }}/>
       </div>
 
