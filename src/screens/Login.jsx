@@ -21,7 +21,7 @@ export function Login() {
     setError(null); setResetMsg(null);
     const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin })
     if (err) setError(err.message)
-    else setResetMsg(`Reset link sent to ${email.trim()} — open it to set a new password.`)
+    else setResetMsg(`A password reset link has been sent to ${email.trim()}.`)
   }
 
   const submit = async (e) => {
