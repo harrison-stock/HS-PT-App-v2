@@ -4,6 +4,14 @@ import { IconSun, IconMoon, IconCheck } from '../components/icons'
 import { InstallPrompt } from './InstallPrompt'
 import { loadConnections, startWearableConnect } from '../lib/health'
 
+// Half-filled circle = "auto / follow system" appearance.
+const IconAuto = ({ size = 22, sw = 1.6 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 3 a9 9 0 0 1 0 18 z" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeChange, home = 'dashboard' }) {
   const [activeTab, setActiveTab] = React.useState('profile');
 
@@ -116,10 +124,11 @@ function ProfileTab({ user, userId, onSave, theme, onThemeChange }) {
       <div className="label" style={{ margin: '22px 0 7px' }}>// APPEARANCE</div>
       <div style={{ display: 'flex', gap: 8 }}>
         {[
-          { v: 'light', label: 'LIGHT', Icon: IconSun },
-          { v: 'dark',  label: 'DARK',  Icon: IconMoon },
+          { v: 'light',  label: 'LIGHT', Icon: IconSun },
+          { v: 'dark',   label: 'DARK',  Icon: IconMoon },
+          { v: 'system', label: 'AUTO',  Icon: IconAuto },
         ].map(opt => {
-          const active = (theme || 'dark') === opt.v;
+          const active = (theme || 'system') === opt.v;
           return (
             <button key={opt.v} onClick={() => onThemeChange && onThemeChange(opt.v)} style={{
               all: 'unset', cursor: 'pointer', flex: 1,

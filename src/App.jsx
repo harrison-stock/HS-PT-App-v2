@@ -39,7 +39,12 @@ const DENSITY = {
 };
 
 export default function App() {
-  const [theme, setTheme] = React.useState('light');
+  const [theme, setTheme] = React.useState(() => {
+    try { return localStorage.getItem('hs_theme') || 'system'; } catch (e) { return 'system'; }
+  });
+  const [systemDark, setSystemDark] = React.useState(() => {
+    try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { return false; }
+  });
   const [accent] = React.useState('sea');
   const [bg] = React.useState('charcoal');
   const [typeIntensity] = React.useState(1);
@@ -195,10 +200,21 @@ export default function App() {
     setPreviewWorkoutId(null);
   };
 
+  // Persist the chosen theme, and follow the OS when set to "system".
+  React.useEffect(() => { try { localStorage.setItem('hs_theme', theme); } catch (e) {} }, [theme]);
+  React.useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!mq) return;
+    const fn = (e) => setSystemDark(e.matches);
+    mq.addEventListener ? mq.addEventListener('change', fn) : mq.addListener(fn);
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', fn) : mq.removeListener(fn); };
+  }, []);
+
   React.useEffect(() => {
     const root = document.documentElement;
-    const isLight = theme === 'light';
-    root.dataset.theme = theme || 'dark';
+    const effective = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+    const isLight = effective === 'light';
+    root.dataset.theme = effective;
     const a = ACCENTS[accent] || ACCENTS.sea;
     root.style.setProperty('--accent', a.c);
     root.style.setProperty('--accent-soft', isLight
@@ -220,7 +236,7 @@ export default function App() {
     root.style.setProperty('--density-pad', d.pad + 'px');
     root.style.setProperty('--density-gap', d.gap + 'px');
     root.style.setProperty('--radius', d.radius + 'px');
-  }, [theme, accent, bg, typeIntensity, density, glow]);
+  }, [theme, systemDark, accent, bg, typeIntensity, density, glow]);
 
   if (authLoading) return <LoadingScreen />;
   if (bootError && !profile) return <BootError onRetry={() => window.location.reload()} />;

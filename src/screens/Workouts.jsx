@@ -346,7 +346,7 @@ export function Workouts({ go, openPreview, userId }) {
 // ── YEAR HEATMAP ─────────────────────────────────────────────────
 // Green = trained, red = missed (past, not completed), grey = rest day.
 const HEAT = {
-  green:  { bg: '#3FAE63', fg: '#fff' },
+  green:  { bg: '#46bbc0', fg: '#fff' },
   red:    { bg: '#E0574F', fg: '#fff' },
   future: { bg: 'var(--accent-soft)', fg: 'var(--accent)' },
   rest:   { bg: 'var(--bg-3)', fg: 'var(--text-3)' },
@@ -396,12 +396,12 @@ function YearView({ workouts, onClose }) {
         {/* Stats */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--line)' }}>
           <div style={{ flex: 1, textAlign: 'center', padding: '12px 0' }}>
-            <div className="h-bold" style={{ fontSize: 22, color: 'var(--accent)' }}>{tracked}</div>
+            <div className="h-bold" style={{ fontSize: 22, color: '#189caa' }}>{tracked}</div>
             <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', letterSpacing: '0.1em', marginTop: 3 }}>DAYS TRACKED</div>
           </div>
           <div style={{ width: 1, background: 'var(--line)' }}/>
           <div style={{ flex: 1, textAlign: 'center', padding: '12px 0' }}>
-            <div className="h-bold" style={{ fontSize: 22, color: '#3FAE63' }}>{pctGreen}<span style={{ fontSize: 11 }}>%</span></div>
+            <div className="h-bold" style={{ fontSize: 22, color: '#46bbc0' }}>{pctGreen}<span style={{ fontSize: 11 }}>%</span></div>
             <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', letterSpacing: '0.1em', marginTop: 3 }}>DAYS COMPLETED</div>
           </div>
         </div>
