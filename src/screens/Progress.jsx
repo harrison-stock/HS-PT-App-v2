@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { loadMuscleVolume } from '../lib/muscleVolume'
 import { loadExerciseMuscleMap } from '../lib/exercises'
 import { loadPhotoHistory, uploadProgressPhoto, deleteProgressPhoto } from '../lib/progressPhotos'
+import { loadHealthDaily } from '../lib/health'
 import { ZoomPan } from '../components/ZoomPan'
 import { MUSCLE_LABELS } from '../data/index'
 import { MUSCLE_BODY } from '../data/musclePaths'
@@ -107,9 +108,46 @@ export function Progress({ go, userId, embedded }) {
         <TabPill active={tab === 'photos'} onClick={() => setTab('photos')} icon={<IconCamera2 size={14} />} label="PHOTOS" />
       </div>
 
+      {tab === 'body' && <HealthActivityCard userId={userId} />}
       {tab === 'body' ? <BodyTab userId={userId} /> : tab === 'photos' ? <PhotosTab userId={userId} /> : <WeightTab range={range} userId={userId} />}
     </div>);
 
+}
+
+// Steps + resting HR from connected wearables. Renders nothing if no data yet.
+function HealthActivityCard({ userId }) {
+  const [data, setData] = React.useState(null);
+  React.useEffect(() => { if (userId) loadHealthDaily(userId, 14).then(setData); }, [userId]);
+  if (!data || data.length === 0) return null;
+
+  const desc = [...data].reverse();
+  const stepsRows = data.filter(d => d.steps != null);
+  const lastSteps = desc.find(d => d.steps != null)?.steps ?? null;
+  const avgSteps = stepsRows.length ? Math.round(stepsRows.reduce((n, d) => n + d.steps, 0) / stepsRows.length) : null;
+  const lastHr = desc.find(d => d.resting_hr != null)?.resting_hr ?? null;
+
+  const Stat = ({ label, value, unit, sub }) => (
+    <div style={{ flex: 1, textAlign: 'center' }}>
+      <div className="label" style={{ fontSize: 7.5, marginBottom: 4 }}>{label}</div>
+      <div className="h-bold" style={{ fontSize: 20, color: 'var(--accent)', lineHeight: 1 }}>
+        {value == null ? '—' : value.toLocaleString()}{unit && value != null && <span style={{ fontSize: 9, color: 'var(--text-3)', marginLeft: 1 }}>{unit}</span>}
+      </div>
+      {sub && <div className="mono" style={{ fontSize: 8, color: 'var(--text-3)', marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="label" style={{ marginBottom: 10 }}>// ACTIVITY · WEARABLE</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Stat label="STEPS TODAY" value={lastSteps} />
+        <div style={{ width: 1, background: 'var(--line)' }}/>
+        <Stat label="AVG STEPS" value={avgSteps} sub="14 DAYS" />
+        <div style={{ width: 1, background: 'var(--line)' }}/>
+        <Stat label="RESTING HR" value={lastHr} unit="bpm" />
+      </div>
+    </div>
+  );
 }
 
 function TabPill({ active, onClick, icon, label }) {

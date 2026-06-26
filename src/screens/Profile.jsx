@@ -2,6 +2,7 @@ import React from 'react'
 import { HexBackButton, Hex } from '../components/hex'
 import { IconSun, IconMoon, IconCheck } from '../components/icons'
 import { InstallPrompt } from './InstallPrompt'
+import { loadConnections, startWearableConnect } from '../lib/health'
 
 export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeChange, home = 'dashboard' }) {
   const [activeTab, setActiveTab] = React.useState('profile');
@@ -50,6 +51,7 @@ export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeCha
       {activeTab === 'profile' && (
         <ProfileTab
           user={user}
+          userId={profile?.id}
           onSave={onSave}
           theme={theme}
           onThemeChange={onThemeChange}
@@ -76,7 +78,7 @@ export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeCha
   );
 }
 
-function ProfileTab({ user, onSave, theme, onThemeChange }) {
+function ProfileTab({ user, userId, onSave, theme, onThemeChange }) {
   const [name, setName] = React.useState(user?.name || '');
   const [email, setEmail] = React.useState(user?.email || '');
   const [dob, setDob] = React.useState(user?.dob || '');
@@ -165,7 +167,55 @@ function ProfileTab({ user, onSave, theme, onThemeChange }) {
       </button>
 
       {showInstall && <InstallPrompt onClose={() => setShowInstall(false)} />}
+
+      <ConnectedDevices userId={userId} />
     </>
+  );
+}
+
+// Wearable connections (steps / heart rate / weight from Garmin, Fitbit, etc.)
+function ConnectedDevices({ userId }) {
+  const [conns, setConns] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+
+  React.useEffect(() => { if (userId) loadConnections(userId).then(setConns); }, [userId]);
+
+  const connect = async () => {
+    setBusy(true); setErr(null);
+    const r = await startWearableConnect();
+    setBusy(false);
+    if (r.error) setErr(r.error);
+  };
+
+  const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—';
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div className="label" style={{ marginBottom: 10 }}>// CONNECTED DEVICES</div>
+      <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', lineHeight: 1.6, marginBottom: 10 }}>
+        Sync steps, heart rate and weight from your wearable (Garmin, Fitbit, Withings, Oura…).
+      </div>
+
+      {conns && conns.length > 0 && (
+        <div style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
+          {conns.map(c => (
+            <div key={c.provider} className="card" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.status === 'connected' ? 'var(--accent)' : 'var(--text-3)', flexShrink: 0 }}/>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, textTransform: 'capitalize' }}>{c.provider}</span>
+              <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)' }}>{c.last_sync ? `SYNCED ${fmt(c.last_sync)}` : 'CONNECTED'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button onClick={connect} disabled={busy} className="btn-ghost" style={{ width: '100%', borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+        {busy ? 'OPENING…' : (conns && conns.length ? '+ CONNECT ANOTHER DEVICE' : '+ CONNECT A DEVICE')}
+      </button>
+      {err && (
+        <div className="mono" style={{ fontSize: 10, color: 'var(--c-coral)', marginTop: 8, lineHeight: 1.5 }}>{err}</div>
+      )}
+    </div>
   );
 }
 
