@@ -51,7 +51,6 @@ export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeCha
         <ProfileTab
           user={user}
           onSave={onSave}
-          onLogout={onLogout}
           theme={theme}
           onThemeChange={onThemeChange}
         />
@@ -59,11 +58,25 @@ export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeCha
       {activeTab === 'subscription' && (
         <SubscriptionTab profile={profile} />
       )}
+
+      {/* Log out — always visible at the bottom of Settings */}
+      <button onClick={onLogout} style={{
+        width: '100%', marginTop: 24,
+        padding: '14px 16px', borderRadius: 12,
+        background: 'transparent',
+        border: '1px solid color-mix(in srgb, var(--c-coral) 45%, var(--line))',
+        color: 'var(--c-coral)', cursor: 'pointer',
+        fontFamily: 'JetBrains Mono, monospace',
+        fontWeight: 700, fontSize: 13, letterSpacing: '0.08em', textTransform: 'uppercase',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+      }}>
+        Log Out
+      </button>
     </div>
   );
 }
 
-function ProfileTab({ user, onSave, onLogout, theme, onThemeChange }) {
+function ProfileTab({ user, onSave, theme, onThemeChange }) {
   const [name, setName] = React.useState(user?.name || '');
   const [email, setEmail] = React.useState(user?.email || '');
   const [dob, setDob] = React.useState(user?.dob || '');
@@ -152,20 +165,6 @@ function ProfileTab({ user, onSave, onLogout, theme, onThemeChange }) {
       </button>
 
       {showInstall && <InstallPrompt onClose={() => setShowInstall(false)} />}
-
-      {/* Log out */}
-      <button onClick={onLogout} style={{
-        width: '100%', marginTop: 14,
-        padding: '13px 16px', borderRadius: 12,
-        background: 'transparent',
-        border: '1px solid color-mix(in srgb, var(--c-coral) 45%, var(--line))',
-        color: 'var(--c-coral)', cursor: 'pointer',
-        fontFamily: 'JetBrains Mono, monospace',
-        fontWeight: 600, fontSize: 13, letterSpacing: '0.08em', textTransform: 'uppercase',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-      }}>
-        Log Out
-      </button>
     </>
   );
 }
