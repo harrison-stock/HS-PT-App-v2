@@ -7,6 +7,7 @@ export function Login() {
     return { code: p.get('invite'), tid: p.get('tid'), name: p.get('name'), mc: p.get('mc') };
   }, []);
 
+  const [name, setName] = React.useState(invite.name || '')
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [loading, setLoading] = React.useState(false)
@@ -26,10 +27,9 @@ export function Login() {
       })
       if (err) setError(err.message)
     } else {
-      const opts = invite.code
-        ? { options: { data: { name: invite.name || '', trainer_id: invite.tid || '', managed_client_id: invite.mc || '' } } }
-        : {};
-      const { error: err } = await supabase.auth.signUp({ email: email.trim(), password, ...opts })
+      const meta = { name: (name.trim() || invite.name || '') };
+      if (invite.code) { meta.trainer_id = invite.tid || ''; meta.managed_client_id = invite.mc || ''; }
+      const { error: err } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: meta } })
       if (err) {
         setError(err.message)
       } else {
@@ -94,6 +94,16 @@ export function Login() {
               {invite.name ? `Welcome, ${invite.name}. ` : ''}
               Create your account to connect with your trainer.
             </div>
+          </div>
+        )}
+        {mode === 'signup' && (
+          <div>
+            <div className="label" style={{ marginBottom: 7 }}>FULL NAME</div>
+            <input
+              type="text" value={name} onChange={e => setName(e.target.value)}
+              placeholder="e.g. John Smith" required autoComplete="name"
+              style={inputStyle}
+            />
           </div>
         )}
         <div>
