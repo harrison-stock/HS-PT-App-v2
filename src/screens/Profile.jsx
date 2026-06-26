@@ -10,7 +10,7 @@ export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeCha
   const initials = ((user?.name || 'U')).trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
 
   return (
-    <div className="scroller" style={{ padding: '0 16px 40px', paddingTop: 64 }}>
+    <div className="scroller" style={{ padding: '0 16px 120px', paddingTop: 64 }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0 18px' }}>
         <HexBackButton onClick={() => go(home)} size={36} />
@@ -251,7 +251,7 @@ function SubscriptionTab({ profile }) {
         </div>
         {credits === 0 && (
           <div className="mono" style={{ fontSize: 10, color: 'var(--c-coral)', marginTop: 10, letterSpacing: '0.08em' }}>
-            Contact your trainer to top up credits
+            Contact Harrison to top up credits
           </div>
         )}
       </div>

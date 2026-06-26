@@ -188,9 +188,6 @@ export function Dashboard({ go, user, userId, impersonating, unread = 0 }) {
         </div>
       </div>
 
-      {/* At-a-glance training strip */}
-      <TrainingStrip userId={userId} />
-
       {/* Today's workout hero */}
       <div className="card" style={{
         padding: 0, marginBottom: 14, overflow: 'hidden', position: 'relative',
@@ -258,6 +255,9 @@ export function Dashboard({ go, user, userId, impersonating, unread = 0 }) {
 
       {/* Programme roadmap */}
       <ProgrammeRoadmap userId={userId} />
+
+      {/* At-a-glance training strip (7/30-day) */}
+      <TrainingStrip userId={userId} />
 
       {/* Goal set by the coach */}
       <GoalCard userId={userId} />

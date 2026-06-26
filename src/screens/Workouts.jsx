@@ -112,6 +112,7 @@ export function Workouts({ go, openPreview, userId }) {
   const [weekOffset, setWeekOffset] = React.useState(0);
   const [previewId, setPreviewId]   = React.useState(null);
   const [reschedulingId, setReschedulingId] = React.useState(null);
+  const [showYear, setShowYear]     = React.useState(false);
 
   const today = fmtDate(new Date());
   const anchor = React.useMemo(() => getWeekMonday(new Date()), []);
@@ -187,6 +188,13 @@ export function Workouts({ go, openPreview, userId }) {
           <div className="label">// PROGRAMME</div>
           <div className="h-bold" style={{ fontSize: 24, marginTop: 4 }}>SCHEDULE</div>
         </div>
+        <button onClick={() => setShowYear(true)} className="mono" style={{
+          all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '8px 12px', borderRadius: 10, background: 'var(--bg-2)', border: '1px solid var(--line-strong)',
+          color: 'var(--text-2)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+        }}>
+          <IconCalendar size={13}/> YEAR
+        </button>
       </div>
 
       {/* Week nav */}
@@ -329,9 +337,140 @@ export function Workouts({ go, openPreview, userId }) {
           onReschedule={() => { setReschedulingId(previewWorkout.id); setPreviewId(null); }}
         />
       )}
+
+      {showYear && <YearView workouts={workouts} onClose={() => setShowYear(false)} />}
     </div>
   );
 }
+
+// ── YEAR HEATMAP ─────────────────────────────────────────────────
+// Green = trained, red = missed (past, not completed), grey = rest day.
+const HEAT = {
+  green:  { bg: '#3FAE63', fg: '#fff' },
+  red:    { bg: '#E0574F', fg: '#fff' },
+  future: { bg: 'var(--accent-soft)', fg: 'var(--accent)' },
+  rest:   { bg: 'var(--bg-3)', fg: 'var(--text-3)' },
+};
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function YearView({ workouts, onClose }) {
+  const [year, setYear] = React.useState(new Date().getFullYear());
+  const today = fmtDate(new Date());
+
+  // date -> best status for the day
+  const map = React.useMemo(() => {
+    const rank = { green: 3, red: 2, future: 1 };
+    const m = {};
+    workouts.forEach(w => {
+      const d = w.date;
+      const s = w.status === 'completed' ? 'green' : (d < today ? 'red' : 'future');
+      if (!m[d] || rank[s] > rank[m[d]]) m[d] = s;
+    });
+    return m;
+  }, [workouts, today]);
+
+  let green = 0, red = 0;
+  Object.entries(map).forEach(([d, s]) => {
+    if (d.slice(0, 4) === String(year)) { if (s === 'green') green++; else if (s === 'red') red++; }
+  });
+  const tracked = green + red;
+  const pctGreen = tracked ? Math.round((green / tracked) * 100) : 0;
+
+  return (
+    <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(7,7,12,0.6)', backdropFilter: 'blur(6px)', animation: 'fadeIn .2s ease' }}>
+      <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', inset: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ padding: '54px 16px 12px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <HexBackButton onClick={onClose} size={34} />
+          <div style={{ flex: 1 }}>
+            <div className="label">// TRAINING YEAR</div>
+            <div className="h-bold" style={{ fontSize: 18, marginTop: 2 }}>CALENDAR</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => setYear(y => y - 1)} style={yrBtn}><IconChevronLeft size={14}/></button>
+            <span className="h-bold" style={{ fontSize: 16, minWidth: 54, textAlign: 'center' }}>{year}</span>
+            <button onClick={() => setYear(y => y + 1)} disabled={year >= new Date().getFullYear()} style={{ ...yrBtn, opacity: year >= new Date().getFullYear() ? 0.4 : 1 }}><IconChevronRight size={14}/></button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ flex: 1, textAlign: 'center', padding: '12px 0' }}>
+            <div className="h-bold" style={{ fontSize: 22, color: 'var(--accent)' }}>{tracked}</div>
+            <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', letterSpacing: '0.1em', marginTop: 3 }}>DAYS TRACKED</div>
+          </div>
+          <div style={{ width: 1, background: 'var(--line)' }}/>
+          <div style={{ flex: 1, textAlign: 'center', padding: '12px 0' }}>
+            <div className="h-bold" style={{ fontSize: 22, color: '#3FAE63' }}>{pctGreen}<span style={{ fontSize: 11 }}>%</span></div>
+            <div className="mono" style={{ fontSize: 8.5, color: 'var(--text-3)', letterSpacing: '0.1em', marginTop: 3 }}>DAYS COMPLETED</div>
+          </div>
+        </div>
+
+        {/* Months */}
+        <div className="scroller" style={{ flex: 1, minHeight: 0, padding: '14px 16px 28px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 16 }}>
+            {MONTHS.map((mn, mi) => <MonthGrid key={mi} year={year} month={mi} map={map} today={today} />)}
+          </div>
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 22, flexWrap: 'wrap' }}>
+            <Legend color={HEAT.green.bg} label="TRAINED" />
+            <Legend color={HEAT.red.bg} label="MISSED" />
+            <Legend color="var(--bg-3)" label="REST" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MonthGrid({ year, month, map, today }) {
+  const first = new Date(year, month, 1);
+  const offset = (first.getDay() + 6) % 7; // Mon-based leading blanks
+  const days = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < offset; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(d);
+
+  return (
+    <div>
+      <div className="mono" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'var(--text-2)', marginBottom: 6 }}>{MONTHS[month].toUpperCase()}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+        {['M','T','W','T','F','S','S'].map((d, i) => (
+          <div key={'h'+i} className="mono" style={{ fontSize: 6.5, color: 'var(--text-3)', textAlign: 'center', marginBottom: 1 }}>{d}</div>
+        ))}
+        {cells.map((d, i) => {
+          if (d == null) return <div key={i} />;
+          const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          const status = map[ds] || 'rest';
+          const h = HEAT[status];
+          const isToday = ds === today;
+          return (
+            <div key={i} style={{
+              aspectRatio: '1', borderRadius: 4, background: h.bg, color: h.fg,
+              display: 'grid', placeItems: 'center', fontFamily: 'JetBrains Mono', fontSize: 7.5, fontWeight: 600,
+              border: isToday ? '1.5px solid var(--accent)' : '1px solid transparent',
+            }}>{d}</div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Legend({ color, label }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 11, height: 11, borderRadius: 3, background: color, border: '1px solid var(--line)' }}/>
+      <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.08em' }}>{label}</span>
+    </div>
+  );
+}
+
+const yrBtn = {
+  all: 'unset', cursor: 'pointer', width: 30, height: 30, borderRadius: 8,
+  background: 'var(--bg-2)', border: '1px solid var(--line-strong)', color: 'var(--text)',
+  display: 'grid', placeItems: 'center',
+};
 
 // ── PREVIEW ──────────────────────────────────────────────────────
 export function WorkoutPreview({ w, onClose, onStart, onReschedule }) {
