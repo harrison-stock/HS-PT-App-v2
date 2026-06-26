@@ -15,7 +15,7 @@ const IconAuto = ({ size = 22, sw = 1.6 }) => (
 export function Profile({ go, user, profile, onSave, onLogout, theme, onThemeChange, home = 'dashboard' }) {
   const [activeTab, setActiveTab] = React.useState('profile');
 
-  const initials = ((user?.name || 'U')).trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
+  const initials = (user?.name || 'U').replace(/[^a-zA-Z0-9\s]/g, ' ').trim().split(/\s+/).filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase() || 'U';
 
   return (
     <div className="scroller" style={{ padding: '0 16px 120px', paddingTop: 64 }}>

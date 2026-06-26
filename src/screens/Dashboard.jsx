@@ -73,7 +73,7 @@ function shapeTask(t) {
 export function Dashboard({ go, user, userId, impersonating, unread = 0 }) {
   const name = (user && user.name) || 'Athlete';
   const firstName = name.trim().split(/\s+/)[0];
-  const initials = name.trim().split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase();
+  const initials = name.replace(/[^a-zA-Z0-9\s]/g, ' ').trim().split(/\s+/).filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase() || 'U';
   const [tasks, setTasks] = React.useState([]);
   const [todayWorkout, setTodayWorkout] = React.useState(null);
   const [workoutLoading, setWorkoutLoading] = React.useState(true);

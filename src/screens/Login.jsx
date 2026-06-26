@@ -14,6 +14,15 @@ export function Login() {
   const [error, setError] = React.useState(null)
   const [mode, setMode] = React.useState(invite.code ? 'signup' : 'signin')
   const [signedUp, setSignedUp] = React.useState(false)
+  const [resetMsg, setResetMsg] = React.useState(null)
+
+  const sendReset = async () => {
+    if (!email.trim()) { setError('Enter your email above, then tap "Forgot password".'); return; }
+    setError(null); setResetMsg(null);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin })
+    if (err) setError(err.message)
+    else setResetMsg(`Reset link sent to ${email.trim()} — open it to set a new password.`)
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -122,7 +131,24 @@ export function Login() {
             autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
             style={inputStyle}
           />
+          {mode === 'signin' && (
+            <div style={{ textAlign: 'right', marginTop: 7 }}>
+              <button type="button" onClick={sendReset} className="mono" style={{
+                all: 'unset', cursor: 'pointer', fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.06em',
+              }}>FORGOT PASSWORD?</button>
+            </div>
+          )}
         </div>
+
+        {resetMsg && (
+          <div className="mono" style={{
+            fontSize: 11, color: 'var(--accent)', padding: '10px 12px',
+            background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+            borderRadius: 8, letterSpacing: '0.04em', lineHeight: 1.5,
+          }}>
+            {resetMsg}
+          </div>
+        )}
 
         {error && (
           <div className="mono" style={{

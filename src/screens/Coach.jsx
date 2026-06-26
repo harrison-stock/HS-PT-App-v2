@@ -348,7 +348,7 @@ function shapeProgramme(p) {
 
 function shapeClient(p) {
   const name = p.name || 'Client';
-  const parts = name.trim().split(/\s+/);
+  const parts = name.replace(/[^a-zA-Z0-9\s]/g, ' ').trim().split(/\s+/).filter(Boolean);
   const initials = parts.map(w => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
   const accent = CLIENT_ACCENTS[name.charCodeAt(0) % CLIENT_ACCENTS.length];
   return {
@@ -373,7 +373,7 @@ function shapeClient(p) {
 
 function shapeManagedClient(mc) {
   const name = mc.name || 'Client';
-  const parts = name.trim().split(/\s+/);
+  const parts = name.replace(/[^a-zA-Z0-9\s]/g, ' ').trim().split(/\s+/).filter(Boolean);
   const initials = parts.map(w => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
   const accent = CLIENT_ACCENTS[name.charCodeAt(0) % CLIENT_ACCENTS.length];
   return {
