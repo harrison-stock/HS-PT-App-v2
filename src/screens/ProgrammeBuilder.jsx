@@ -431,8 +431,8 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
             {switchingEx !== null && (
               <ExercisePicker
                 onClose={() => setSwitchingEx(null)}
-                onPick={({ name, img }) => {
-                  updateEx(switchingEx.sIdx, switchingEx.eIdx, { name, img });
+                onPick={(ex) => {
+                  updateEx(switchingEx.sIdx, switchingEx.eIdx, { name: ex.name, img: ex.img, banded: !!ex.banded, unilateral: !!ex.unilateral });
                   setSwitchingEx(null);
                 }}
               />
@@ -440,7 +440,7 @@ export function ProgrammeBuilder({ programme, onClose, openRoadmap = false, trai
             {addingSection !== null && (
               <ExercisePicker
                 onClose={() => setAddingSection(null)}
-                onPick={({ name, img }) => { addEx(addingSection, { name, img }); setAddingSection(null); }}
+                onPick={(ex) => { addEx(addingSection, ex); setAddingSection(null); }}
               />
             )}
             {altFor !== null && (
