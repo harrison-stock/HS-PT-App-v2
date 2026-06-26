@@ -72,7 +72,7 @@
   --line:        rgba(15,30,34,0.08);
   --line-strong: rgba(15,30,34,0.15);
 
-  --text:    #094E53;
+  --text:    #0A4E52;
   --text-2:  #4A5A60;
   --text-3:  #8693A0;
 
@@ -87,7 +87,7 @@
   --track:      rgba(15,30,34,0.06);
   --chip-fill:  rgba(15,30,34,0.035);
   --card-wash:  linear-gradient(180deg, rgba(255,255,255,0), rgba(15,30,34,0.008));
-  --heading-deep: #094E53;
+  --heading-deep: #0A4E52;
   --tick-idle: rgba(10,31,34,0.26);
 }
 
