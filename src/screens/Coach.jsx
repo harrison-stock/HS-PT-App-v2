@@ -33,6 +33,7 @@ export function Coach({ go, trainerId, unread = 0, only }) {
   const [builderOpenRoadmap, setBuilderOpenRoadmap] = React.useState(false);
   const [programmes, setProgrammes]         = React.useState([]);
   const [loadingProgs, setLoadingProgs]     = React.useState(true);
+  const [inUse, setInUse]                   = React.useState(() => new Set());
   const [clients, setClients]               = React.useState([]);
   const [loadingClients, setLoadingClients] = React.useState(true);
   const [inviteOpen, setInviteOpen]         = React.useState(false);
@@ -57,12 +58,20 @@ export function Coach({ go, trainerId, unread = 0, only }) {
 
   const fetchProgrammes = async () => {
     setLoadingProgs(true);
-    const { data } = await supabase
-      .from('programmes')
-      .select('*, programme_phases(*)')
-      .order('updated_at', { ascending: false });
+    const [{ data }, { data: assigned }] = await Promise.all([
+      supabase.from('programmes').select('*, programme_phases(*)').order('updated_at', { ascending: false }),
+      supabase.from('client_workouts').select('programme_days(programme_phases(programme_id))'),
+    ]);
     if (data) setProgrammes(data.map(shapeProgramme));
+    const used = new Set();
+    (assigned || []).forEach(w => { const pid = w.programme_days?.programme_phases?.programme_id; if (pid) used.add(pid); });
+    setInUse(used);
     setLoadingProgs(false);
+  };
+
+  const setProgrammeStatus = async (id, status) => {
+    setProgrammes(prev => prev.map(p => p.id === id ? { ...p, status } : p));
+    await supabase.from('programmes').update({ status }).eq('id', id);
   };
 
   const fetchClients = async () => {
@@ -243,10 +252,11 @@ export function Coach({ go, trainerId, unread = 0, only }) {
 
         {hubTab === 'programmes' && (
           <ProgrammesTab
-            programmes={fullProgrammes} loading={loadingProgs}
+            programmes={fullProgrammes} loading={loadingProgs} inUse={inUse}
             onPick={setProgrammeId} onNew={newProgramme}
             onEdit={openBuilder}
             onDuplicate={duplicateProgramme}
+            onSetStatus={setProgrammeStatus}
             onDelete={async (id) => { await deleteProgramme(id); }}
           />
         )}
@@ -337,7 +347,7 @@ export function Coach({ go, trainerId, unread = 0, only }) {
 function shapeProgramme(p) {
   const phases = [...(p.programme_phases || [])].sort((a, b) => a.phase_index - b.phase_index);
   return {
-    id: p.id, name: p.name, tag: p.tag, is_adhoc: !!p.is_adhoc,
+    id: p.id, name: p.name, tag: p.tag, is_adhoc: !!p.is_adhoc, status: p.status || 'active',
     weeks: phases.reduce((s, ph) => s + (ph.weeks || 0), 0),
     phases: phases.length,
     clients: 0,
@@ -593,37 +603,64 @@ function ClientRow({ c, onPick }) {
 }
 
 // ── PROGRAMMES TAB ──────────────────────────────────────────────
-function ProgrammesTab({ programmes, loading, onPick, onNew, onEdit, onDuplicate, onDelete }) {
+const PROG_STATUS = [
+  { id: 'active',    label: 'Active' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'archived',  label: 'Archived' },
+];
+function ProgrammesTab({ programmes, loading, inUse, onPick, onNew, onEdit, onDuplicate, onSetStatus, onDelete }) {
+  const [filter, setFilter] = React.useState('active');
+  const counts = { active: 0, completed: 0, archived: 0 };
+  programmes.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
+  const shown = programmes.filter(p => (p.status || 'active') === filter);
+
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div className="label">// PROGRAMMES · {loading ? '…' : programmes.length}</div>
+        <div className="label">// PROGRAMMES</div>
         <button onClick={onNew} className="btn-ghost" style={{ padding: '6px 10px', borderColor: 'var(--accent)', color: 'var(--accent)', fontSize: 10 }}>
           + NEW PROGRAMME
         </button>
       </div>
+
+      {/* Status filter */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+        {PROG_STATUS.map(s => (
+          <button key={s.id} onClick={() => setFilter(s.id)} className="mono" style={{
+            all: 'unset', cursor: 'pointer', flex: 1, textAlign: 'center', padding: '8px 4px', borderRadius: 8,
+            fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em',
+            background: filter === s.id ? 'var(--accent-soft)' : 'var(--bg-2)',
+            border: `1px solid ${filter === s.id ? 'var(--accent)' : 'var(--line)'}`,
+            color: filter === s.id ? 'var(--accent)' : 'var(--text-3)',
+          }}>{s.label.toUpperCase()} · {counts[s.id] || 0}</button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>
           LOADING…
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {programmes.map(p => (
-            <ProgrammeCard key={p.id} p={p}
+          {shown.map(p => (
+            <ProgrammeCard key={p.id} p={p} inUse={inUse?.has(p.id)}
               onPick={() => onPick(p.id)}
               onEdit={() => onEdit(p)}
               onDuplicate={() => onDuplicate(p)}
+              onSetStatus={(st) => onSetStatus(p.id, st)}
               onDelete={() => onDelete(p.id)}
             />
           ))}
-          {programmes.length === 0 && (
+          {shown.length === 0 && (
             <div className="card" style={{ padding: 28, textAlign: 'center' }}>
-              <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', marginBottom: 12 }}>
-                NO PROGRAMMES YET
+              <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', marginBottom: programmes.length === 0 ? 12 : 0 }}>
+                {programmes.length === 0 ? 'NO PROGRAMMES YET' : `NO ${filter.toUpperCase()} PROGRAMMES`}
               </div>
-              <button onClick={onNew} className="btn-primary" style={{ fontSize: 11, padding: '10px 18px' }}>
-                + CREATE FIRST PROGRAMME
-              </button>
+              {programmes.length === 0 && (
+                <button onClick={onNew} className="btn-primary" style={{ fontSize: 11, padding: '10px 18px' }}>
+                  + CREATE FIRST PROGRAMME
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -632,32 +669,37 @@ function ProgrammesTab({ programmes, loading, onPick, onNew, onEdit, onDuplicate
   );
 }
 
-function ProgrammeCard({ p, onPick, onEdit, onDuplicate, onDelete }) {
+function ProgrammeCard({ p, inUse, onPick, onEdit, onDuplicate, onSetStatus, onDelete }) {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [confirmDel, setConfirmDel] = React.useState(false);
   const tagColor = p.tag === 'STRENGTH' ? 'var(--accent)'
                  : p.tag === 'ONBOARD'  ? 'var(--c-amber)'
                  : p.tag === 'REHAB'    ? 'var(--c-coral)'
                  :                        'var(--c-blue)';
+  const statusMeta = p.status === 'completed' ? { label: 'COMPLETED', color: 'var(--c-blue)' }
+                   : p.status === 'archived'  ? { label: 'ARCHIVED',  color: 'var(--text-3)' }
+                   :                            { label: 'ACTIVE',     color: 'var(--accent)' };
+  const statusActions = p.status === 'active'    ? [['completed', 'MARK COMPLETED'], ['archived', 'ARCHIVE']]
+                      : p.status === 'completed' ? [['active', 'REOPEN (ACTIVE)'], ['archived', 'ARCHIVE']]
+                      :                            [['active', 'RESTORE (ACTIVE)']];
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', opacity: p.status === 'archived' ? 0.72 : 1 }}>
       <button onClick={onPick} style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%', boxSizing: 'border-box' }}>
         <div className="card" style={{ padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                 <span className="chip" style={{ fontSize: 8, padding: '2px 6px', color: tagColor, borderColor: 'currentColor' }}>{p.tag}</span>
+                <span className="mono" style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 999, color: statusMeta.color, background: `color-mix(in srgb, ${statusMeta.color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${statusMeta.color} 35%, transparent)` }}>{statusMeta.label}</span>
+                {inUse && (
+                  <span className="mono" style={{ fontSize: 8, fontWeight: 800, padding: '2px 6px', borderRadius: 999, color: 'var(--accent)', background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)' }}>● LIVE · IN USE</span>
+                )}
                 <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.1em' }}>
                   {p.weeks} WK · {p.phases} PHASE{p.phases !== 1 ? 'S' : ''}
                 </span>
               </div>
               <div style={{ fontSize: 16, fontWeight: 600, paddingRight: 30 }}>{p.name}</div>
             </div>
-            {p.clients > 0 && (
-              <span className="mono" style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.08em', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                {p.clients} CLIENT{p.clients !== 1 ? 'S' : ''}
-              </span>
-            )}
           </div>
 
           {p.phaseList.length > 0 && (
@@ -704,6 +746,7 @@ function ProgrammeCard({ p, onPick, onEdit, onDuplicate, onDelete }) {
             {[
               { label: 'EDIT', fn: () => { onEdit(); setMenuOpen(false); } },
               { label: 'DUPLICATE', fn: () => { onDuplicate(); setMenuOpen(false); } },
+              ...statusActions.map(([st, label]) => ({ label, fn: () => { onSetStatus(st); setMenuOpen(false); } })),
             ].map(item => (
               <button key={item.label} onClick={item.fn} style={{
                 all: 'unset', cursor: 'pointer', display: 'block',
