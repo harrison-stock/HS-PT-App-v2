@@ -4,8 +4,12 @@ import { loadGuides } from '../lib/guides'
 import { loadFavourites, setFavourite } from '../lib/favourites'
 import { RecipeBuilder } from './RecipeBuilder'
 import { GuideBuilder } from './GuideBuilder'
+import { loadExercises, videoThumb, ALL_MUSCLES } from '../lib/exercises'
+import { exerciseMatches } from '../lib/exerciseSearch'
 import { HEX_RATIO, HEX_PATH, HexShape, Hex, HexBackButton } from '../components/hex'
-import { IconHeart, IconFlame, IconBolt, IconClock, IconChevronRight, IconPlus, IconCamera2, IconPlay, IconCheck } from '../components/icons'
+import { IconHeart, IconFlame, IconBolt, IconClock, IconChevronRight, IconPlus, IconCamera2, IconPlay, IconCheck, IconDumbbell } from '../components/icons'
+
+const MUSCLE_LABEL = Object.fromEntries(ALL_MUSCLES.map(m => [m.key, m.label]));
 
 // Resources — recipes & guides. Coaches build/edit both here.
 export function Resources({ go, userId, isTrainer }) {
@@ -17,10 +21,12 @@ export function Resources({ go, userId, isTrainer }) {
   const [query, setQuery] = React.useState('');
   const [openRecipe, setOpenRecipe] = React.useState(null);
   const [favs, setFavs] = React.useState(() => new Set());
+  const [exercises, setExercises] = React.useState(null);   // glossary
+  const [openExercise, setOpenExercise] = React.useState(null);
 
   const refreshRecipes = React.useCallback(() => { loadRecipes().then(setRecipes); }, []);
   const refreshGuides  = React.useCallback(() => { loadGuides().then(setGuides); }, []);
-  React.useEffect(() => { refreshRecipes(); refreshGuides(); }, [refreshRecipes, refreshGuides]);
+  React.useEffect(() => { refreshRecipes(); refreshGuides(); loadExercises().then(setExercises); }, [refreshRecipes, refreshGuides]);
   React.useEffect(() => { loadFavourites(userId).then(setFavs); }, [userId]);
 
   const toggleFav = (id, type) => {
@@ -101,7 +107,7 @@ export function Resources({ go, userId, isTrainer }) {
       }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
         <input value={query} onChange={(e) => setQuery(e.target.value)}
-        placeholder={`Search ${tab}...`}
+        placeholder={tab === 'exercises' ? 'Search exercises (try BB, DB)…' : `Search ${tab}...`}
         style={{
           flex: 1, background: 'transparent', border: 0, outline: 'none',
           color: 'var(--text)', fontFamily: 'JetBrains Mono', fontSize: 12, letterSpacing: '0.04em'
@@ -109,9 +115,10 @@ export function Resources({ go, userId, isTrainer }) {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
         <ResTab active={tab === 'recipes' || tab === 'favourites'} onClick={() => setTab('recipes')} icon={<IconFlame size={14} />} label={`RECIPES · ${recipesLoading ? '…' : recipeList.length}`} />
         <ResTab active={tab === 'guides'} onClick={() => setTab('guides')} icon={<IconBolt size={14} />} label={`GUIDES · ${guidesLoading ? '…' : guideList.length}`} />
+        <ResTab active={tab === 'exercises'} onClick={() => setTab('exercises')} icon={<IconDumbbell size={14} />} label={`EXERCISES · ${exercises === null ? '…' : exercises.length}`} />
       </div>
 
       {/* Coach: new recipe / guide */}
@@ -184,7 +191,31 @@ export function Resources({ go, userId, isTrainer }) {
         </div>
       }
 
-      {filtered.length === 0 && query && tab !== 'favourites' && !(tab === 'recipes' && recipesLoading) && sourceList.length > 0 &&
+      {/* Exercise glossary — read-only reference of the coach's library */}
+      {tab === 'exercises' && (
+        exercises === null ? (
+          <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>LOADING…</div>
+        ) : (() => {
+          const exFiltered = exercises.filter((e) => exerciseMatches(e.name, query, e.muscle_group || ''));
+          if (exercises.length === 0) return (
+            <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+              <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em', lineHeight: 1.7 }}>
+                NO EXERCISES YET<br/><span style={{ fontSize: 9 }}>{isTrainer ? 'Build your library in the Exercises tab' : 'Your coach hasn’t added any exercises yet'}</span>
+              </div>
+            </div>
+          );
+          if (exFiltered.length === 0) return (
+            <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}><div style={{ fontSize: 13 }}>No exercises match "{query}"</div></div>
+          );
+          return (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {exFiltered.map((e) => <ExerciseGlossaryCard key={e.id} e={e} onOpen={() => setOpenExercise(e)} />)}
+            </div>
+          );
+        })()
+      )}
+
+      {filtered.length === 0 && query && tab !== 'favourites' && tab !== 'exercises' && !(tab === 'recipes' && recipesLoading) && sourceList.length > 0 &&
       <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
           <div style={{ fontSize: 13 }}>No {tab} match "{query}"</div>
         </div>
@@ -193,8 +224,100 @@ export function Resources({ go, userId, isTrainer }) {
       {openRecipe && <RecipeDetail r={openRecipe} onClose={() => setOpenRecipe(null)}
       isFav={favs.has(openRecipe.id)} onToggleFav={() => toggleFav(openRecipe.id, 'recipe')}
       onEdit={isTrainer ? () => { setOpenRecipe(null); setBuilderRecipe(openRecipe); } : null} />}
+
+      {openExercise && <ExerciseGlossaryDetail e={openExercise} onClose={() => setOpenExercise(null)} />}
     </div>);
 
+}
+
+// ── EXERCISE GLOSSARY (read-only) ────────────────────────────────
+function ExerciseGlossaryCard({ e, onOpen }) {
+  const thumb = e.thumbnail_url || videoThumb(e.video_url) || (e.photos && e.photos[0]) || '';
+  return (
+    <div className="card" onClick={onOpen} style={{ padding: 0, overflow: 'hidden', display: 'flex', cursor: 'pointer', position: 'relative' }}>
+      <div style={{ width: 88, flexShrink: 0, background: `url('${thumb}') center/cover, var(--bg-3)`, position: 'relative' }}>
+        {e.video_url && <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#eceff4' }}><IconPlay size={18}/></div>}
+      </div>
+      <div style={{ padding: 12, flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+          {e.muscle_group && <span className="mono" style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 7px', borderRadius: 999, color: 'var(--accent)', background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)' }}>{e.muscle_group.toUpperCase()}</span>}
+          {e.category && <span className="mono" style={{ fontSize: 8.5, fontWeight: 600, padding: '2px 7px', borderRadius: 999, color: 'var(--text-2)', border: '1px solid var(--line-strong)' }}>{e.category.toUpperCase()}</span>}
+          {e.banded && <span className="mono" style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 7px', borderRadius: 999, color: 'var(--c-pink)', border: '1px solid color-mix(in srgb, var(--c-pink) 40%, transparent)' }}>BANDED</span>}
+          {e.unilateral && <span className="mono" style={{ fontSize: 8.5, fontWeight: 700, padding: '2px 7px', borderRadius: 999, color: 'var(--c-amber)', border: '1px solid color-mix(in srgb, var(--c-amber) 40%, transparent)' }}>EACH SIDE</span>}
+        </div>
+        <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.2 }}>{e.name}</div>
+      </div>
+      <div style={{ display: 'grid', placeItems: 'center', paddingRight: 10 }}><IconChevronRight size={15} style={{ color: 'var(--text-3)' }}/></div>
+    </div>
+  );
+}
+
+function ExerciseGlossaryDetail({ e, onClose }) {
+  const thumb = e.thumbnail_url || videoThumb(e.video_url) || (e.photos && e.photos[0]) || '';
+  const steps = (e.instructions || '').split('\n').map(s => s.trim()).filter(Boolean);
+  const muscles = (e.muscles_worked || []).map(k => MUSCLE_LABEL[k] || k);
+  const openVideo = () => { const u = e.video_url || e.link_url; if (u) window.open(u, '_blank', 'noopener'); };
+  return (
+    <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(7,7,12,0.7)', backdropFilter: 'blur(8px)', animation: 'fadeIn .2s ease' }}>
+      <div onClick={(ev) => ev.stopPropagation()} style={{ position: 'absolute', inset: 0, background: 'var(--bg-0)', display: 'flex', flexDirection: 'column', animation: 'slideUp .25s ease' }}>
+        {/* Hero */}
+        <div style={{ height: 220, position: 'relative', flexShrink: 0, background: `linear-gradient(180deg, rgba(7,7,12,0.35) 0%, transparent 30%, var(--bg-0) 100%), url('${thumb}') center/cover, var(--bg-3)` }}>
+          <HexBackButton onClick={onClose} variant="overlay" size={38} style={{ position: 'absolute', top: 14, left: 14, border: 0, background: 'none', padding: 0, cursor: 'pointer' }}/>
+          {e.video_url && (
+            <button onClick={openVideo} aria-label="Play video" style={{ all: 'unset', cursor: 'pointer', position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
+              <Hex size={58} square style={{ background: 'rgba(0,0,0,0.55)', color: '#eceff4' }}><IconPlay size={22}/></Hex>
+            </button>
+          )}
+          <div style={{ position: 'absolute', left: 18, right: 18, bottom: 14 }}>
+            <div className="h-bold text-glow" style={{ fontSize: 24, lineHeight: 1.05, color: 'var(--accent)' }}>{e.name.toUpperCase()}</div>
+          </div>
+        </div>
+
+        <div className="scroller" style={{ flex: 1, minHeight: 0, padding: '16px 18px 40px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+            {e.muscle_group && <span className="chip chip-accent" style={{ fontSize: 9 }}>{e.muscle_group}</span>}
+            {e.modality && <span className="chip" style={{ fontSize: 9 }}>{e.modality}</span>}
+            {e.category && <span className="chip" style={{ fontSize: 9 }}>{e.category}</span>}
+            {e.banded && <span className="chip" style={{ fontSize: 9, color: 'var(--c-pink)', borderColor: 'currentColor' }}>BANDED</span>}
+            {e.unilateral && <span className="chip" style={{ fontSize: 9, color: 'var(--c-amber)', borderColor: 'currentColor' }}>EACH SIDE</span>}
+          </div>
+
+          {muscles.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div className="label" style={{ marginBottom: 8 }}>// MUSCLES WORKED</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {muscles.map((m, i) => <span key={i} className="mono" style={{ fontSize: 10, fontWeight: 600, padding: '5px 10px', borderRadius: 999, background: 'var(--bg-2)', border: '1px solid var(--line-strong)', color: 'var(--text-2)' }}>{m}</span>)}
+              </div>
+            </div>
+          )}
+
+          {steps.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div className="label" style={{ marginBottom: 10 }}>// HOW TO</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {steps.map((s, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 12, padding: 12, background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 10, borderLeft: '2px solid var(--accent)' }}>
+                    <Hex size={26} square style={{ background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 50%, transparent)', fontFamily: 'Orbitron', fontWeight: 800, fontSize: 11, color: 'var(--accent)' }}>{i + 1}</Hex>
+                    <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-2)', alignSelf: 'center' }}>{s}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {e.link_url && (
+            <a href={e.link_url} target="_blank" rel="noopener" className="btn-ghost" style={{ display: 'flex', width: '100%', boxSizing: 'border-box', alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none' }}>
+              OPEN REFERENCE LINK <IconChevronRight size={14}/>
+            </a>
+          )}
+
+          {steps.length === 0 && muscles.length === 0 && !e.video_url && !e.link_url && (
+            <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center', padding: '20px 0' }}>No extra detail added for this exercise yet.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ResTab({ active, onClick, icon, label }) {
