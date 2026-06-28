@@ -187,7 +187,15 @@ export function ActiveLog({ go, dayId, userId, resume }) {
             });
           });
         });
-        if (logRows.length) await supabase.from('logged_sets').insert(logRows);
+        if (logRows.length) {
+          const { error: logErr } = await supabase.from('logged_sets').insert(logRows);
+          // Fallback if migration 032 (exercise_name / nullable exercise_id) isn't
+          // applied yet: log the programme exercises without the new fields.
+          if (logErr) {
+            const safe = logRows.filter(r => r.exercise_id).map(({ exercise_name, ...r }) => r);
+            if (safe.length) await supabase.from('logged_sets').insert(safe);
+          }
+        }
         await supabase.from('client_workouts').update({ status: 'completed' }).eq('day_id', dayId).eq('client_id', userId);
         // Notify the coach that the client finished a workout.
         const tId = await trainerOf(userId);
@@ -290,7 +298,7 @@ export function ActiveLog({ go, dayId, userId, resume }) {
         base: { name: ex.name, img: ex.img || '' },
         phase: phaseId, ss: null, banded: !!ex.banded, unilateral: !!ex.unilateral,
         tempo: '', rest: 60, coach: '', alternatives: [],
-        sets: [{ reps: '10', kg: null, band: ex.banded ? 'medium' : undefined, perSide: !!ex.unilateral, done: false, active: false, rpe: null }],
+        sets: [{ reps: '10', kg: ex.banded ? null : 0, band: ex.banded ? 'medium' : undefined, perSide: !!ex.unilateral, done: false, active: false, rpe: null }],
       };
       return [...prev.slice(0, insertAt), newEx, ...prev.slice(insertAt)];
     });
