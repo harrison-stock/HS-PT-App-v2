@@ -259,7 +259,6 @@ export default function App() {
     dob: profile?.date_of_birth || '',
   };
 
-  const showNav = !['log', 'notifications', 'sessionresults'].includes(screen);
   const activeUserId = clientViewId || session.user.id;
   const homeScreen = isTrainer ? 'coach' : 'dashboard';
   // "Assume control": while controlling a client, render the CLIENT app
@@ -267,6 +266,9 @@ export default function App() {
   const impersonating = !!clientViewId;
   const navIsTrainer = isTrainer && !impersonating;
   const dashUser = impersonating ? { name: clientViewName || 'Client', email: '', dob: '' } : user;
+  // Coaches keep the bottom nav visible everywhere; clients lose it only in the
+  // immersive screens (workout player, notifications, results).
+  const showNav = navIsTrainer || !['log', 'notifications', 'sessionresults'].includes(screen);
 
   let ScreenEl;
   if (screen === 'workouts')        ScreenEl = <Workouts go={navigate} openPreview={previewWorkoutId} userId={activeUserId}/>;
