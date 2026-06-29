@@ -45,10 +45,16 @@ Deno.serve(async (req) => {
       },
       redirectTo: redirectTo || url,
     });
-    if (error) return json({ error: error.message }, 400);
+    if (error) {
+      console.error('inviteUserByEmail failed:', JSON.stringify(error));
+      const msg = error.message || (error as any).error_description || (error as any).code
+        || (error as any).name || JSON.stringify(error) || 'Invite failed';
+      return json({ error: msg, status: (error as any).status ?? null }, 400);
+    }
 
     return json({ ok: true });
   } catch (e) {
-    return json({ error: String(e) }, 500);
+    console.error('invite-client crashed:', e);
+    return json({ error: (e as any)?.message || String(e) }, 500);
   }
 });

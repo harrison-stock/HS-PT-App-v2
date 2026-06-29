@@ -35,6 +35,7 @@ export function Coach({ go, trainerId, unread = 0, only }) {
   const [loadingProgs, setLoadingProgs]     = React.useState(true);
   const [progClients, setProgClients]       = React.useState({}); // programmeId → [clientId]
   const [clients, setClients]               = React.useState([]);
+  const [archivedClients, setArchivedClients] = React.useState([]);
   const [loadingClients, setLoadingClients] = React.useState(true);
   const [inviteOpen, setInviteOpen]         = React.useState(false);
   const [todaySchedule, setTodaySchedule]   = React.useState(null);
@@ -81,16 +82,20 @@ export function Coach({ go, trainerId, unread = 0, only }) {
 
   const fetchClients = async () => {
     setLoadingClients(true);
-    const [{ data: profiles }, { data: managed }] = await Promise.all([
+    const [{ data: profiles }, { data: managed }, { data: archived }] = await Promise.all([
       supabase.from('profiles')
         .select('id, name, email, credits, client_status, subscription_due, timezone, archived')
         .eq('trainer_id', trainerId).eq('role', 'client').eq('archived', false),
       supabase.from('managed_clients')
         .select('id, name, email, credits, client_status')
         .eq('trainer_id', trainerId).is('linked_profile_id', null),
+      supabase.from('profiles')
+        .select('id, name, email, credits, client_status')
+        .eq('trainer_id', trainerId).eq('role', 'client').eq('archived', true),
     ]);
     const real    = (profiles || []).map(shapeClient);
     const pending = (managed  || []).map(shapeManagedClient);
+    setArchivedClients((archived || []).map(shapeClient));
 
     // Batch-load session stats for real clients
     if (real.length > 0) {
@@ -129,6 +134,28 @@ export function Coach({ go, trainerId, unread = 0, only }) {
 
     setClients([...real, ...pending]);
     setLoadingClients(false);
+  };
+
+  // Bring an archived client back onto the active roster.
+  const restoreClient = async (c) => {
+    setArchivedClients(prev => prev.filter(x => x.id !== c.id));
+    await supabase.from('profiles').update({ archived: false }).eq('id', c.id);
+    fetchClients();
+  };
+
+  // Permanently remove a client from this trainer's roster.
+  // Managed (never-signed-up) clients are deleted outright; real accounts are
+  // detached from the trainer (their auth login survives, but they leave the roster).
+  const removeClient = async (c) => {
+    setArchivedClients(prev => prev.filter(x => x.id !== c.id));
+    if (c.managed) {
+      await supabase.from('managed_clients').delete().eq('id', c.id);
+    } else {
+      await supabase.from('profiles')
+        .update({ trainer_id: null, archived: false })
+        .eq('id', c.id);
+    }
+    fetchClients();
   };
 
   const newProgramme = () => {
@@ -315,7 +342,7 @@ export function Coach({ go, trainerId, unread = 0, only }) {
         ))}
       </div>
 
-      {tab === 'clients'    && <ClientsTab clients={clients} loading={loadingClients} onPick={setClientId} onInvite={() => setInviteOpen(true)}/>}
+      {tab === 'clients'    && <ClientsTab clients={clients} archived={archivedClients} loading={loadingClients} onPick={setClientId} onInvite={() => setInviteOpen(true)} onRestore={restoreClient} onRemove={removeClient}/>}
       {tab === 'schedule'   && <ScheduleTab schedule={todaySchedule} clients={clients} onPick={setClientId}/>}
 
       {activeClient && (
@@ -514,8 +541,9 @@ function KPIRow({ kpis }) {
 }
 
 // ── CLIENTS TAB ─────────────────────────────────────────────────
-function ClientsTab({ clients, loading, onPick, onInvite }) {
+function ClientsTab({ clients, archived = [], loading, onPick, onInvite, onRestore, onRemove }) {
   const [q, setQ] = React.useState('');
+  const [showArchived, setShowArchived] = React.useState(false);
 
   const filtered = clients.filter(c =>
     c.name.toLowerCase().includes(q.toLowerCase())
@@ -560,7 +588,84 @@ function ClientsTab({ clients, loading, onPick, onInvite }) {
           )}
         </div>
       )}
+
+      {archived.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <button onClick={() => setShowArchived(s => !s)} style={{
+            all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+            width: '100%', padding: '6px 2px',
+          }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2.5"
+              style={{ transform: showArchived ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>
+              <path d="M9 6l6 6-6 6"/>
+            </svg>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.14em', fontWeight: 700 }}>
+              ARCHIVED · {archived.length}
+            </span>
+          </button>
+
+          {showArchived && (
+            <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+              {archived.map(c => (
+                <ArchivedClientRow key={c.id} c={c} onRestore={() => onRestore(c)} onRemove={() => onRemove(c)}/>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </>
+  );
+}
+
+function ArchivedClientRow({ c, onRestore, onRemove }) {
+  const [confirming, setConfirming] = React.useState(false);
+  return (
+    <div className="card" style={{
+      padding: 12, display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: 12,
+      alignItems: 'center', opacity: 0.92,
+    }}>
+      <Hex size={36} style={{
+        background: 'var(--bg-3, var(--bg-2))', color: 'var(--text-3)',
+        fontFamily: 'Orbitron', fontSize: 11, fontWeight: 800,
+      }}>{c.initials}</Hex>
+
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-2, var(--text))' }}>
+          {c.name}
+        </div>
+        <div className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.06em', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {c.email || 'ARCHIVED'}
+        </div>
+      </div>
+
+      {confirming ? (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onRemove} style={{
+            all: 'unset', cursor: 'pointer', padding: '5px 9px', borderRadius: 6,
+            background: 'var(--c-coral)', color: '#fff',
+            fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.08em', fontWeight: 700,
+          }}>DELETE</button>
+          <button onClick={() => setConfirming(false)} style={{
+            all: 'unset', cursor: 'pointer', padding: '5px 9px', borderRadius: 6,
+            background: 'var(--bg-2)', color: 'var(--text-3)',
+            fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.08em', fontWeight: 700,
+          }}>CANCEL</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onRestore} style={{
+            all: 'unset', cursor: 'pointer', padding: '5px 9px', borderRadius: 6,
+            background: 'var(--accent-soft)', color: 'var(--accent)',
+            fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.08em', fontWeight: 700,
+          }}>RESTORE</button>
+          <button onClick={() => setConfirming(true)} style={{
+            all: 'unset', cursor: 'pointer', padding: '5px 9px', borderRadius: 6,
+            border: '1px solid var(--line)', color: 'var(--text-3)',
+            fontFamily: 'JetBrains Mono', fontSize: 9, letterSpacing: '0.08em', fontWeight: 700,
+          }}>REMOVE</button>
+        </div>
+      )}
+    </div>
   );
 }
 
