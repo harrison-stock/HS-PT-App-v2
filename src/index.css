@@ -125,28 +125,21 @@ body:has([data-role="trainer"]) {
    surfaces to make use of a laptop/desktop screen. */
 .dt-content { width: 100%; max-width: 820px; margin: 0 auto; box-sizing: border-box; }
 
-/* Overview tab: stack on phones, masonry into 2 columns on wide screens. */
-.ov-masonry > * { margin-bottom: 12px; }
-
-/* Body tab: map + panels stack on phones, sit side-by-side on wide screens. */
-.body-split { display: grid; gap: 10px; }
-.body-col   { display: grid; gap: 10px; align-content: start; min-width: 0; }
+/* Overview tab: single column on phones, two tidy columns on wide screens. */
+.ov-2col { display: grid; gap: 12px; }
+.ov-col  { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.body-col { display: grid; gap: 10px; align-content: start; min-width: 0; }
 
 /* Generic 2-up list (clients, programmes) on wide screens. */
 .grid-2-wide { display: grid; }
 
 @media (min-width: 1100px) {
   .coach-wrap { max-width: 1180px; }
-  .dt-content { max-width: 1200px; }
+  .dt-content { max-width: 1180px; }
 }
 
 @media (min-width: 980px) {
-  .ov-masonry { column-count: 2; column-gap: 12px; }
-  .ov-masonry > * { break-inside: avoid; }
-  .ov-masonry > .ov-span { column-span: all; }
-
-  .body-split { grid-template-columns: minmax(0, 430px) 1fr; align-items: start; }
-
+  .ov-2col     { grid-template-columns: 1fr 1fr; align-items: start; }
   .grid-2-wide { grid-template-columns: 1fr 1fr; align-items: start; }
 }
 #root {
@@ -313,10 +306,18 @@ body:has([data-role="trainer"]) {
   overflow-y: auto;
   overflow-x: hidden;
 }
-.scroller::-webkit-scrollbar { width: 4px; }
+.scroller { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.scroller::-webkit-scrollbar { width: 10px; }
+.scroller::-webkit-scrollbar-track { background: transparent; }
 .scroller::-webkit-scrollbar-thumb {
-  background: linear-gradient(var(--accent), var(--accent-2));
-  border-radius: 4px;
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.scroller::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+  background-clip: padding-box;
 }
 
 /* HR / dotted */

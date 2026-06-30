@@ -181,21 +181,21 @@ function OverviewTab({ c, go, onClose, onTab }) {
   const wDelta  = weights.length >= 2 ? +(weights[weights.length - 1] - weights[0]).toFixed(1) : null;
 
   return (
-    <div className="ov-masonry">
-      {/* Assume control — full width across the masonry */}
-      <div className="ov-span">
-        {!c.managed ? (
-          <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'dashboard' }); }}
-            className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--heading-deep)' }}>
-            ◉ ASSUME CONTROL — OPEN CLIENT APP
-          </button>
-        ) : (
-          <div className="card" style={{ padding: 12, textAlign: 'center' }}>
-            <Mono>◉ AWAITING SIGN-UP — assume control unlocks once the client joins</Mono>
-          </div>
-        )}
-      </div>
+    <div style={{ display: 'grid', gap: 12 }}>
+      {/* Assume control — full width */}
+      {!c.managed ? (
+        <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'dashboard' }); }}
+          className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--heading-deep)' }}>
+          ◉ ASSUME CONTROL — OPEN CLIENT APP
+        </button>
+      ) : (
+        <div className="card" style={{ padding: 12, textAlign: 'center' }}>
+          <Mono>◉ AWAITING SIGN-UP — assume control unlocks once the client joins</Mono>
+        </div>
+      )}
 
+      <div className="ov-2col">
+        <div className="ov-col">
       {/* Training */}
       <button onClick={() => onTab('training')} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
         <div className="card" style={{ padding: 14 }}>
@@ -284,7 +284,9 @@ function OverviewTab({ c, go, onClose, onTab }) {
           ) : <Mono>No goal set — tap to add one</Mono>}
         </div>
       </button>
+        </div>
 
+        <div className="ov-col">
       {/* Coach notes — the jot-down area */}
       <NoteCard
         label="// NOTES"
@@ -346,9 +348,11 @@ function OverviewTab({ c, go, onClose, onTab }) {
           <KpiCard label="INJURIES" value={d ? d.injuries.length : '—'} color={d && d.injuries.length ? 'var(--c-coral)' : 'var(--text-2)'} />
         </div>
       </div>
+        </div>
+      </div>
 
-      {/* Updates — full-width feed across the masonry */}
-      <div className="ov-span" style={{ display: 'grid', gap: 12 }}>
+      {/* Updates — full-width feed below both columns */}
+      <div style={{ display: 'grid', gap: 12 }}>
         <div className="label">// UPDATES</div>
         {!d && <Mono>LOADING…</Mono>}
         {d && d.sessions.length === 0 && <EmptyState>No sessions logged yet</EmptyState>}
@@ -695,7 +699,7 @@ function BodyTab({ c, trainerId }) {
   const pickedVolume = picked ? workedData[picked] : null;
 
   return (
-    <div className="body-split">
+    <div style={{ display: 'grid', gap: 10, maxWidth: 600, margin: '0 auto' }}>
       <div className="body-col">
       {/* Mode toggle — large */}
       <div style={{ display: 'flex', gap: 8 }}>
