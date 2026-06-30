@@ -119,6 +119,36 @@ body:has([data-role="trainer"]) {
   padding: 0 24px 110px;
   padding-top: 64px;
 }
+
+/* ── Desktop expansion (coach side only) ─────────────────────────────
+   The client app stays phone-width (390px cap); these widen the coach
+   surfaces to make use of a laptop/desktop screen. */
+.dt-content { width: 100%; max-width: 820px; margin: 0 auto; box-sizing: border-box; }
+
+/* Overview tab: stack on phones, masonry into 2 columns on wide screens. */
+.ov-masonry > * { margin-bottom: 12px; }
+
+/* Body tab: map + panels stack on phones, sit side-by-side on wide screens. */
+.body-split { display: grid; gap: 10px; }
+.body-col   { display: grid; gap: 10px; align-content: start; min-width: 0; }
+
+/* Generic 2-up list (clients, programmes) on wide screens. */
+.grid-2-wide { display: grid; }
+
+@media (min-width: 1100px) {
+  .coach-wrap { max-width: 1180px; }
+  .dt-content { max-width: 1200px; }
+}
+
+@media (min-width: 980px) {
+  .ov-masonry { column-count: 2; column-gap: 12px; }
+  .ov-masonry > * { break-inside: avoid; }
+  .ov-masonry > .ov-span { column-span: all; }
+
+  .body-split { grid-template-columns: minmax(0, 430px) 1fr; align-items: start; }
+
+  .grid-2-wide { grid-template-columns: 1fr 1fr; align-items: start; }
+}
 #root {
   min-height: 100dvh;
   background: var(--bg-1);

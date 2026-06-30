@@ -86,7 +86,7 @@ export function ClientDetail({ c, trainerId, programmes, onClose, onChanged, go 
       </div>
 
       {/* ── Content ── */}
-      <div className="scroller" style={{ flex: 1, minHeight: 0, padding: '14px 14px 40px', width: '100%', maxWidth: 820, margin: '0 auto', boxSizing: 'border-box' }}>
+      <div className="scroller dt-content" style={{ flex: 1, minHeight: 0, padding: '14px 14px 40px' }}>
         {tab === 'overview' && <OverviewTab  c={c} go={go} onClose={onClose} onTab={setTab} />}
         {tab === 'training' && <TrainingTab  c={c} trainerId={trainerId} programmes={programmes} onChanged={onChanged} />}
         {tab === 'body'     && <BodyTab      c={c} trainerId={trainerId} />}
@@ -181,18 +181,20 @@ function OverviewTab({ c, go, onClose, onTab }) {
   const wDelta  = weights.length >= 2 ? +(weights[weights.length - 1] - weights[0]).toFixed(1) : null;
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      {/* Assume control */}
-      {!c.managed ? (
-        <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'dashboard' }); }}
-          className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--heading-deep)' }}>
-          ◉ ASSUME CONTROL — OPEN CLIENT APP
-        </button>
-      ) : (
-        <div className="card" style={{ padding: 12, textAlign: 'center' }}>
-          <Mono>◉ AWAITING SIGN-UP — assume control unlocks once the client joins</Mono>
-        </div>
-      )}
+    <div className="ov-masonry">
+      {/* Assume control — full width across the masonry */}
+      <div className="ov-span">
+        {!c.managed ? (
+          <button onClick={() => { onClose(); go('clientview', { clientId: c.id, clientName: c.name, screen: 'dashboard' }); }}
+            className="btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--heading-deep)' }}>
+            ◉ ASSUME CONTROL — OPEN CLIENT APP
+          </button>
+        ) : (
+          <div className="card" style={{ padding: 12, textAlign: 'center' }}>
+            <Mono>◉ AWAITING SIGN-UP — assume control unlocks once the client joins</Mono>
+          </div>
+        )}
+      </div>
 
       {/* Training */}
       <button onClick={() => onTab('training')} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
@@ -345,23 +347,25 @@ function OverviewTab({ c, go, onClose, onTab }) {
         </div>
       </div>
 
-      {/* Updates */}
-      <div className="label">// UPDATES</div>
-      {!d && <Mono>LOADING…</Mono>}
-      {d && d.sessions.length === 0 && <EmptyState>No sessions logged yet</EmptyState>}
-      {d?.sessions.map(s => {
-        const dur = s.completed_at ? Math.round((new Date(s.completed_at) - new Date(s.started_at)) / 60000) : null;
-        return (
-          <div key={s.id} className="card" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {c.name.split(' ')[0]} logged a workout for {new Date(s.started_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-            </span>
-            <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', flexShrink: 0 }}>
-              {relDays(s.started_at)}{dur != null && <> · {dur}M</>}{s.completed_at && <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>}
-            </span>
-          </div>
-        );
-      })}
+      {/* Updates — full-width feed across the masonry */}
+      <div className="ov-span" style={{ display: 'grid', gap: 12 }}>
+        <div className="label">// UPDATES</div>
+        {!d && <Mono>LOADING…</Mono>}
+        {d && d.sessions.length === 0 && <EmptyState>No sessions logged yet</EmptyState>}
+        {d?.sessions.map(s => {
+          const dur = s.completed_at ? Math.round((new Date(s.completed_at) - new Date(s.started_at)) / 60000) : null;
+          return (
+            <div key={s.id} className="card" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.name.split(' ')[0]} logged a workout for {new Date(s.started_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+              </span>
+              <span className="mono" style={{ fontSize: 9, color: 'var(--text-3)', flexShrink: 0 }}>
+                {relDays(s.started_at)}{dur != null && <> · {dur}M</>}{s.completed_at && <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -691,7 +695,8 @@ function BodyTab({ c, trainerId }) {
   const pickedVolume = picked ? workedData[picked] : null;
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div className="body-split">
+      <div className="body-col">
       {/* Mode toggle — large */}
       <div style={{ display: 'flex', gap: 8 }}>
         <BigToggle active={isInjuryMode}  onClick={() => { setMode('injuries'); setPicked(null); }}>INJURIES</BigToggle>
@@ -743,7 +748,9 @@ function BodyTab({ c, trainerId }) {
       {!isInjuryMode && volume !== null && Object.keys(workedData).length === 0 && (
         <EmptyState>No completed sessions in the last 30 days</EmptyState>
       )}
+      </div>
 
+      <div className="body-col">
       {/* Selected muscle — trained volume panel */}
       {!isInjuryMode && picked && pickedVolume && (
         <div className="card" style={{ padding: 14, borderColor: 'color-mix(in srgb, var(--accent) 40%, var(--line))' }}>
@@ -819,6 +826,7 @@ function BodyTab({ c, trainerId }) {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -902,8 +910,13 @@ function InjuryForm({ group, side, onSave, onClose, defaultSide }) {
 
 // ── DATA ─────────────────────────────────────────────────────────
 function DataTab({ c }) {
-  // The coach sees exactly what the client sees in their Metrics tab.
-  return <Progress userId={c.id} go={() => {}} embedded />;
+  // The coach sees exactly what the client sees in their Metrics tab. Cap the
+  // width on desktop so the charts stay readable rather than stretching edge-to-edge.
+  return (
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
+      <Progress userId={c.id} go={() => {}} embedded />
+    </div>
+  );
 }
 
 // ── TASKS ─────────────────────────────────────────────────────────

@@ -575,7 +575,7 @@ function ClientsTab({ clients, archived = [], loading, onPick, onInvite, onResto
           LOADING…
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: 8 }}>
+        <div className="grid-2-wide" style={{ display: 'grid', gap: 8 }}>
           {filtered.map(c => <ClientRow key={c.id} c={c} onPick={() => onPick(c.id)}/>)}
           {filtered.length === 0 && (
             <div className="card" style={{ padding: 28, textAlign: 'center' }}>
@@ -765,7 +765,7 @@ function ProgrammesTab({ programmes, loading, progClients, clients, onPick, onNe
           LOADING…
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: 10 }}>
+        <div className="grid-2-wide" style={{ display: 'grid', gap: 10 }}>
           {shown.map(p => (
             <ProgrammeCard key={p.id} p={p}
               assigned={(progClients?.[p.id] || []).map(id => byId[id]).filter(Boolean)}
