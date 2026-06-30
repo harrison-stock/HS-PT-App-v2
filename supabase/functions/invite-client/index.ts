@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
     const { email, name, managedClientId, redirectTo } = await req.json();
     if (!email) return json({ error: 'Email is required' }, 400);
 
-    const { error } = await admin.auth.admin.inviteUserByEmail(email, {
+    const { data: inviteData, error } = await admin.auth.admin.inviteUserByEmail(email, {
       data: {
         name: name ?? '',
         role: 'client',
@@ -46,13 +46,24 @@ Deno.serve(async (req) => {
       redirectTo: redirectTo || url,
     });
     if (error) {
-      console.error('inviteUserByEmail failed:', JSON.stringify(error));
-      const msg = error.message || (error as any).error_description || (error as any).code
-        || (error as any).name || JSON.stringify(error) || 'Invite failed';
-      return json({ error: msg, status: (error as any).status ?? null }, 400);
+      // AuthError stores message/status/code as non-enumerable props, so a plain
+      // JSON.stringify yields "{}". Pull them out explicitly + a build marker so
+      // we can confirm this (new) version is actually deployed.
+      const detail = {
+        message: (error as any)?.message ?? null,
+        name:    (error as any)?.name ?? null,
+        status:  (error as any)?.status ?? null,
+        code:    (error as any)?.code ?? null,
+      };
+      console.error('inviteUserByEmail failed:', detail);
+      return json({
+        error: detail.message || detail.code || detail.name || 'Invite failed (empty error — usually SMTP delivery)',
+        detail,
+        marker: 'v2',
+      }, 400);
     }
 
-    return json({ ok: true });
+    return json({ ok: true, userId: inviteData?.user?.id ?? null, marker: 'v2' });
   } catch (e) {
     console.error('invite-client crashed:', e);
     return json({ error: (e as any)?.message || String(e) }, 500);
