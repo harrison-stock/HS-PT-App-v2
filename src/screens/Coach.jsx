@@ -331,7 +331,7 @@ export function Coach({ go, trainerId, unread = 0, only }) {
 
   const tabs = [
     { id: 'clients',    label: 'Clients',    count: loadingClients ? null : clients.length },
-    { id: 'schedule',   label: 'Today',      count: todaySchedule?.length || null },
+    { id: 'archived',   label: 'Archived',   count: loadingClients ? null : (archivedClients.length || null) },
   ];
 
   return (
@@ -345,8 +345,8 @@ export function Coach({ go, trainerId, unread = 0, only }) {
         ))}
       </div>
 
-      {tab === 'clients'    && <ClientsTab clients={clients} archived={archivedClients} loading={loadingClients} onPick={setClientId} onInvite={() => setInviteOpen(true)} onRestore={restoreClient} onRemove={removeClient}/>}
-      {tab === 'schedule'   && <ScheduleTab schedule={todaySchedule} clients={clients} onPick={setClientId}/>}
+      {tab === 'clients'    && <ClientsTab clients={clients} loading={loadingClients} onPick={setClientId} onInvite={() => setInviteOpen(true)}/>}
+      {tab === 'archived'   && <ArchivedTab archived={archivedClients} loading={loadingClients} onRestore={restoreClient} onRemove={removeClient}/>}
 
       {activeClient && (
         <ClientDetail
@@ -544,9 +544,8 @@ function KPIRow({ kpis }) {
 }
 
 // ── CLIENTS TAB ─────────────────────────────────────────────────
-function ClientsTab({ clients, archived = [], loading, onPick, onInvite, onRestore, onRemove }) {
+function ClientsTab({ clients, loading, onPick, onInvite }) {
   const [q, setQ] = React.useState('');
-  const [showArchived, setShowArchived] = React.useState(false);
 
   const filtered = clients.filter(c =>
     c.name.toLowerCase().includes(q.toLowerCase())
@@ -591,29 +590,32 @@ function ClientsTab({ clients, archived = [], loading, onPick, onInvite, onResto
           )}
         </div>
       )}
+    </>
+  );
+}
 
-      {archived.length > 0 && (
-        <div style={{ marginTop: 22 }}>
-          <button onClick={() => setShowArchived(s => !s)} style={{
-            all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-            width: '100%', padding: '6px 2px',
-          }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" strokeWidth="2.5"
-              style={{ transform: showArchived ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>
-              <path d="M9 6l6 6-6 6"/>
-            </svg>
-            <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.14em', fontWeight: 700 }}>
-              ARCHIVED · {archived.length}
-            </span>
-          </button>
-
-          {showArchived && (
-            <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-              {archived.map(c => (
-                <ArchivedClientRow key={c.id} c={c} onRestore={() => onRestore(c)} onRemove={() => onRemove(c)}/>
-              ))}
-            </div>
-          )}
+// ── ARCHIVED TAB ────────────────────────────────────────────────
+function ArchivedTab({ archived = [], loading, onRestore, onRemove }) {
+  return (
+    <>
+      <div className="label" style={{ marginBottom: 10 }}>
+        // ARCHIVED CLIENTS — restore to your roster, or remove permanently
+      </div>
+      {loading ? (
+        <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--text-3)', fontFamily: 'JetBrains Mono', fontSize: 11, letterSpacing: '0.12em' }}>
+          LOADING…
+        </div>
+      ) : archived.length === 0 ? (
+        <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em' }}>
+            NO ARCHIVED CLIENTS
+          </div>
+        </div>
+      ) : (
+        <div className="grid-2-wide" style={{ display: 'grid', gap: 8 }}>
+          {archived.map(c => (
+            <ArchivedClientRow key={c.id} c={c} onRestore={() => onRestore(c)} onRemove={() => onRemove(c)}/>
+          ))}
         </div>
       )}
     </>
