@@ -1,9 +1,14 @@
 // Supabase Edge Function: invite-client
-// Sends a Supabase Auth invite email to a prospective client, carrying the
-// trainer link + managed-client id in user metadata so signup auto-connects.
+// Sends a branded client-invite email DIRECTLY via the Resend API — bypassing
+// Supabase's built-in SMTP entirely. The email carries the app's own invite
+// link (?invite=code&tid=…&mc=…), so no Supabase auth user is created up front
+// (that previously caused duplicate / "already registered" problems). The auth
+// account is created only when the client follows the link and sets a password.
 //
-// Deploy:  supabase functions deploy invite-client
-// Requires SMTP configured in Supabase (Auth → Emails) for delivery.
+// Requires a Resend API key set as the `RESEND_API_KEY` Edge Function secret:
+//   supabase secrets set RESEND_API_KEY=re_...
+// (or Dashboard → Edge Functions → Secrets). Deploy:
+//   supabase functions deploy invite-client   (or paste via the dashboard editor)
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const cors = {
@@ -15,6 +20,43 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
+const FROM = 'Harrison Stock PT <noreply@harrisonstock.co.uk>';
+
+function inviteEmailHtml(firstName: string, trainerName: string, inviteUrl: string) {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#ECEFF4;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ECEFF4;padding:24px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="width:480px;max-width:100%;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(9,78,83,0.08);">
+          <tr><td>
+            <img src="https://app.harrisonstock.co.uk/email-header.png" width="480" style="display:block;width:100%;height:auto;border:0;" alt="Harrison Stock — Personal Training &amp; Nutrition"/>
+          </td></tr>
+          <tr><td style="padding:30px 34px 6px;">
+            <p style="font-size:16px;color:#094E53;margin:0 0 16px;font-weight:600;">Hi ${firstName},</p>
+            <p style="font-size:15px;line-height:1.55;color:#4A5A60;margin:0;">
+              ${trainerName} has invited you to join their training app — your programmes, workouts, progress tracking and check-ins, all in one place.
+            </p>
+          </td></tr>
+          <tr><td align="center" style="padding:24px 34px 8px;">
+            <a href="${inviteUrl}" style="display:inline-block;background:#189CAA;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.02em;padding:15px 30px;border-radius:10px;">
+              Set up your account &rarr;
+            </a>
+          </td></tr>
+          <tr><td style="padding:14px 34px 30px;">
+            <p style="font-size:12px;line-height:1.55;color:#8693A0;margin:0;">
+              Or paste this link into your browser:<br/>
+              <a href="${inviteUrl}" style="color:#189CAA;word-break:break-all;">${inviteUrl}</a>
+            </p>
+          </td></tr>
+        </table>
+        <p style="font-size:11px;color:#8693A0;margin:18px 0 0;letter-spacing:0.04em;">HARRISON STOCK &middot; PERSONAL TRAINING &amp; NUTRITION</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
@@ -22,6 +64,7 @@ Deno.serve(async (req) => {
     const url = Deno.env.get('SUPABASE_URL')!;
     const anon = Deno.env.get('SUPABASE_ANON_KEY')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const resendKey = Deno.env.get('RESEND_API_KEY');
     const authHeader = req.headers.get('Authorization') ?? '';
 
     // Identify the caller from their JWT — they must be a signed-in trainer.
@@ -30,40 +73,36 @@ Deno.serve(async (req) => {
     if (uErr || !user) return json({ error: 'Not authenticated' }, 401);
 
     const admin = createClient(url, serviceKey);
-    const { data: prof } = await admin.from('profiles').select('role').eq('id', user.id).single();
+    const { data: prof } = await admin.from('profiles').select('role, name').eq('id', user.id).single();
     if (prof?.role !== 'trainer') return json({ error: 'Only trainers can invite clients' }, 403);
 
-    const { email, name, managedClientId, redirectTo } = await req.json();
+    const { email, name, inviteUrl } = await req.json();
     if (!email) return json({ error: 'Email is required' }, 400);
+    if (!inviteUrl) return json({ error: 'Invite link is missing' }, 400);
+    if (!resendKey) return json({ error: 'RESEND_API_KEY is not set — add it under Edge Functions → Secrets' }, 500);
 
-    const { data: inviteData, error } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: {
-        name: name ?? '',
-        role: 'client',
-        trainer_id: user.id,
-        managed_client_id: managedClientId ?? null,
-      },
-      redirectTo: redirectTo || url,
+    const trainerName = (prof?.name || '').trim() || 'Your coach';
+    const firstName = (name || '').trim().split(/\s+/)[0] || 'there';
+
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: FROM,
+        to: [email],
+        subject: `${trainerName} has invited you to train`,
+        html: inviteEmailHtml(firstName, trainerName, inviteUrl),
+      }),
     });
-    if (error) {
-      // AuthError stores message/status/code as non-enumerable props, so a plain
-      // JSON.stringify yields "{}". Pull them out explicitly + a build marker so
-      // we can confirm this (new) version is actually deployed.
-      const detail = {
-        message: (error as any)?.message ?? null,
-        name:    (error as any)?.name ?? null,
-        status:  (error as any)?.status ?? null,
-        code:    (error as any)?.code ?? null,
-      };
-      console.error('inviteUserByEmail failed:', detail);
-      return json({
-        error: detail.message || detail.code || detail.name || 'Invite failed (empty error — usually SMTP delivery)',
-        detail,
-        marker: 'v2',
-      }, 400);
+
+    if (!res.ok) {
+      const detail = await res.text();
+      console.error('Resend send failed:', res.status, detail);
+      return json({ error: `Email send failed (${res.status})`, detail, marker: 'resend' }, 400);
     }
 
-    return json({ ok: true, userId: inviteData?.user?.id ?? null, marker: 'v2' });
+    const result = await res.json().catch(() => ({}));
+    return json({ ok: true, id: result?.id ?? null, marker: 'resend' });
   } catch (e) {
     console.error('invite-client crashed:', e);
     return json({ error: (e as any)?.message || String(e) }, 500);

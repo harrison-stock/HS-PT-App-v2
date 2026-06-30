@@ -1351,13 +1351,12 @@ function InviteSheet({ trainerId, onClose, onCreated }) {
     const url = `${window.location.origin}?invite=${invite.code}&tid=${trainerId}&mc=${mc.id}&name=${encodeURIComponent(clientName.trim())}`;
     setInviteUrl(url);
 
-    // If an email was given, send a Supabase Auth invite email via the edge function.
+    // If an email was given, send the branded invite email (via Resend) carrying
+    // this same signup link. Attach the coach's JWT so the function gateway has it.
     if (clientEmail.trim()) {
-      // Attach the signed-in coach's JWT explicitly so the function gateway
-      // always receives an Authorization header.
       const { data: { session } } = await supabase.auth.getSession();
       const { data, error: fnErr } = await supabase.functions.invoke('invite-client', {
-        body: { email: clientEmail.trim(), name: clientName.trim(), managedClientId: mc.id, redirectTo: window.location.origin },
+        body: { email: clientEmail.trim(), name: clientName.trim(), inviteUrl: url },
         headers: session ? { Authorization: `Bearer ${session.access_token}` } : undefined,
       });
       if (!fnErr && !data?.error) setEmailed(true);
