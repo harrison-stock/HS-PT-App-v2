@@ -20,9 +20,11 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
-// Send from Harrison's real business address (same verified domain, so SPF/DKIM/
-// DMARC still align) to lean on its existing sending reputation.
-const FROM = 'Harrison Stock <harrison@harrisonstock.co.uk>';
+// Send from a dedicated address that ONLY Resend uses. Sending "as" a real
+// mailbox (e.g. harrison@) that normally sends via Google/Microsoft makes
+// inboxes flag the inconsistency as spoofing ("unverified"); a Resend-only
+// address avoids that. Replies still route to the coach via reply_to below.
+const FROM = 'Harrison Stock PT <noreply@harrisonstock.co.uk>';
 
 function inviteEmailHtml(firstName: string, trainerName: string, inviteUrl: string) {
   return `<!doctype html>
