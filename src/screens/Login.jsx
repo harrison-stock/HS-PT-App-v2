@@ -4,11 +4,11 @@ import { supabase } from '../lib/supabase'
 export function Login() {
   const invite = React.useMemo(() => {
     const p = new URLSearchParams(window.location.search);
-    return { code: p.get('invite'), tid: p.get('tid'), name: p.get('name'), mc: p.get('mc') };
+    return { code: p.get('invite'), tid: p.get('tid'), name: p.get('name'), mc: p.get('mc'), email: p.get('email') };
   }, []);
 
   const [name, setName] = React.useState(invite.name || '')
-  const [email, setEmail] = React.useState('')
+  const [email, setEmail] = React.useState(invite.email || '')
   const [password, setPassword] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState(null)
@@ -100,8 +100,8 @@ export function Login() {
               YOU'VE BEEN INVITED
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
-              {invite.name ? `Welcome, ${invite.name}. ` : ''}
-              Create your account to connect with your trainer.
+              {invite.name ? `Welcome, ${invite.name.trim().split(/\s+/)[0]}. ` : 'Welcome. '}
+              Create your account to access your programme, recipes and resources.
             </div>
           </div>
         )}
