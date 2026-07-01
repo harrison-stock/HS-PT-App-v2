@@ -24,7 +24,7 @@ const json = (body: unknown, status = 200) =>
 // mailbox (e.g. harrison@) that normally sends via Google/Microsoft makes
 // inboxes flag the inconsistency as spoofing ("unverified"); a Resend-only
 // address avoids that. Replies still route to the coach via reply_to below.
-const FROM = 'Harrison Stock PT <noreply@harrisonstock.co.uk>';
+const FROM = 'Harrison Stock PT <admin@harrisonstock.co.uk>';
 
 function inviteEmailHtml(firstName: string, trainerName: string, inviteUrl: string) {
   return `<!doctype html>
